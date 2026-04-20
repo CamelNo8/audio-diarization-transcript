@@ -6,5 +6,6 @@
 *.m4a
 *.wma
 *.aiff
-
+*.mp4
 *.csv
+*.env

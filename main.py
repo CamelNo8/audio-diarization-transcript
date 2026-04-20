@@ -191,10 +191,8 @@ class AudioProcessor:
                             # 辞書に話者ごとの重複時間を加算
                             speaker_durations[speaker] = speaker_durations.get(speaker, 0.0) + overlap.duration
 
-                    best_speaker = "UNKNOWN"
-                    if speaker_durations:
-                        # 重複時間が最大の話者を選択
-                        best_speaker = max(speaker_durations, key=speaker_durations.get)
+                    # 話者ラベルは個別の仮割り当てを出力せず、常に 'speaker' とする
+                    best_speaker = "speaker"
 
                     start_str = format_time(w_start)
                     end_str = format_time(w_end)
