@@ -70,6 +70,7 @@ class AudioProcessor:
         self.temp_wav_path: Optional[Path] = None
         self.speaker_mapping: Dict[str, str] = {}  # クラスターID -> 話者名
         self.speaker_distance_mapping: Dict[str, Optional[float]] = {}  # クラスターID -> コサイン距離
+        self.speaker_candidate_distance_mapping: Dict[str, Optional[Dict[str, float]]] = {}
 
     def __enter__(self):
         return self
@@ -152,10 +153,13 @@ class AudioProcessor:
                     # クラスターの代表音声区間から波形を取得
                     waveform, sr = audio_io.crop(str(self.temp_wav_path), longest_segment)
                     embedding = self.identifier.get_embedding_from_waveform(waveform, sr)
-                    identified_name, cosine_distance = self.identifier.identify_speaker(embedding)
+                    identified_name, cosine_distance, candidate_distances = (
+                        self.identifier.identify_speaker_with_distances(embedding)
+                    )
                     
                     self.speaker_mapping[cluster_id] = identified_name
                     self.speaker_distance_mapping[cluster_id] = cosine_distance
+                    self.speaker_candidate_distance_mapping[cluster_id] = candidate_distances
                     logging.info(
                         f"Cluster '{cluster_id}' identified as -> {identified_name} "
                         f"(cosine_distance={cosine_distance:.6f})"
@@ -166,11 +170,13 @@ class AudioProcessor:
                     logging.warning(f"Failed to identify speaker for cluster {cluster_id}: {e}")
                     self.speaker_mapping[cluster_id] = f"Unknown_{cluster_id}"
                     self.speaker_distance_mapping[cluster_id] = None
+                    self.speaker_candidate_distance_mapping[cluster_id] = None
         else:
             # 識別器が設定されていない場合はクラスターIDをそのまま使用
             for cluster_id in diarization.labels():
                 self.speaker_mapping[cluster_id] = cluster_id
                 self.speaker_distance_mapping[cluster_id] = None
+                self.speaker_candidate_distance_mapping[cluster_id] = None
 
         # 4. 全文一括文字起こし (mlx-whisper)
         logging.info(f"Running mlx-whisper transcription ({self.mlx_model_id})...")
@@ -218,9 +224,11 @@ class AudioProcessor:
                         best_cluster = max(speaker_durations, key=speaker_durations.get)
                         best_speaker = self.speaker_mapping.get(best_cluster, best_cluster)
                         best_distance = self.speaker_distance_mapping.get(best_cluster)
+                        candidate_distances = self.speaker_candidate_distance_mapping.get(best_cluster)
                     else:
                         best_speaker = "Unknown"
                         best_distance = None
+                        candidate_distances = None
 
                     start_str = format_time(w_start)
                     end_str = format_time(w_end)
@@ -230,6 +238,20 @@ class AudioProcessor:
                     logging.info(
                         f"  [{start_str} - {end_str}] {best_speaker}: {w_text} "
                         f"(cosine_distance={cosine_distance_str or 'N/A'})"
+                    )
+                    if candidate_distances:
+                        sorted_candidates = sorted(
+                            candidate_distances.items(), key=lambda item: item[1]
+                        )
+                        candidates_str = ", ".join(
+                            f"{name}={dist:.6f}" for name, dist in sorted_candidates
+                        )
+                    else:
+                        candidates_str = "N/A"
+
+                    print(
+                        f"  [{start_str} - {end_str}] cluster={best_cluster} "
+                        f"speaker={best_speaker} candidates: {candidates_str}"
                     )
 
             logging.info(f"Successfully finished writing results to {self.output_csv_path}")

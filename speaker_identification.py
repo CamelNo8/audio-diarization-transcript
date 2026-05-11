@@ -4,7 +4,7 @@ from pyannote.audio import Inference, Model
 from scipy.spatial.distance import cdist
 from pathlib import Path
 import logging
-from typing import Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 class SpeakerIdentifier:
     """登録話者の管理、特徴量抽出、照合を行うクラス"""
@@ -57,11 +57,18 @@ class SpeakerIdentifier:
 
     def identify_speaker(self, embedding: np.ndarray) -> Tuple[str, Optional[float]]:
         """抽出した特徴量と登録話者を比較し、推定話者名とコサイン距離を返す"""
+        name, best_dist, _ = self.identify_speaker_with_distances(embedding)
+        return name, best_dist
+
+    def identify_speaker_with_distances(
+        self, embedding: np.ndarray
+    ) -> Tuple[str, Optional[float], Optional[Dict[str, float]]]:
+        """推定話者名、最短距離、全候補の距離を返す"""
         if not self.registry_embeddings:
             # 登録話者がいない場合はすぐにUnknownを返す
             name = f"Unknown_{self.unknown_counter}"
             self.unknown_counter += 1
-            return name, None
+            return name, None, None
 
         distances = {}
         for name, reg_embedding in self.registry_embeddings.items():
@@ -74,8 +81,8 @@ class SpeakerIdentifier:
 
         # 最短距離が閾値以下であれば特定、超えていればUnknownとする
         if best_dist <= self.threshold:
-            return best_name, best_dist
-        else:
-            name = f"Unknown_{self.unknown_counter}"
-            self.unknown_counter += 1
-            return name, best_dist
+            return best_name, best_dist, distances
+
+        name = f"Unknown_{self.unknown_counter}"
+        self.unknown_counter += 1
+        return name, best_dist, distances
