@@ -1,139 +1,154 @@
-# audio-diarization-transcript
+話者照合 ＋ 文字起こし 統合スクリプト (Audio Diarization & Transcription)
 
-ローカル環境で動作し、話者分離機能も備えた音声文字起こしプログラム
+このプロジェクトは、音声・動画ファイルから文字起こしを行い、さらに**「事前に登録した話者の声」と照合して「誰が話したか」を特定・CSV出力**するPythonスクリプトです。
 
-## 実行環境
+Pyannoteによる話者分離（Diarization）と埋め込み抽出（Embedding）、およびApple Silicon（Mac）に最適化された mlx-whisper による高速な文字起こしを組み合わせています。
 
-- **Python:** 3.11
-- **主要ライブラリ:** PyTorch, Transformers, pyannote.audio, torchaudio (詳細は `pyproject.toml` を参照し、`uv sync` でインストールされます)
+主な機能
 
-## 環境構築
+文字起こし: mlx-whisper を使用した高速・高精度な日本語の文字起こし。
 
-1.  **uv の導入:**
-    - Pythonのパッケージ管理ツール `uv` をインストールします。導入方法は公式ドキュメントを参照してください: [Installing uv](https://docs.astral.sh/uv/getting-started/installation/)
+話者分離 (Diarization): pyannote/speaker-diarization-3.1 を使用し、音声内で人が話している区間を検出。
 
-2.  **依存ライブラリのインストール:**
-    - プロジェクトのルートディレクトリで以下のコマンドを実行し、必要なライブラリをインストールします。
-      ```bash
-      uv sync
-      ```
+話者照合・特定: pyannote/embedding を使用。事前に登録した音声ファイルの声紋特徴量を抽出し、文字起こしされた音声セグメントとコサイン距離で比較（閾値による判定付きの最近傍検索）。一致した話者の名前を付与します。
 
-3.  **Hugging Face の設定:**
-    - **アクセストークン取得:** Hugging Face Hub にログインし、アクセストークン（READ権限）を取得します。
-      - 参考: [Hugging Faceでアクセストークンを取得する方法](https://monomonotech.jp/kurage/memo/m250108_huggingface_get_token)
-    - **モデル利用規約への同意:** Hugging Face Hub上で、以下のモデルの利用規約に同意する必要があります。（スクリプトが内部で依存している可能性があるため）
-      - [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1)
-      - [pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0)
-    - **Hugging Face CLI ログイン:** コマンドラインから Hugging Face にログインし、取得したトークンを設定します。`uv` 環境内で `huggingface-cli` を実行します。
-      ```bash
-      uv run huggingface-cli login
-      ```
-    - 以下のようなプロンプトが表示されるので、取得したアクセストークンをペーストしてEnterキーを押します（入力は表示されません）。
+動作環境・必須要件
 
-      ```text
-        _|    _|  _|    _|    _|_|_|    _|_|_|  _|_|_|  _|      _|    _|_|_|      _|_|_|_|    _|_|      _|_|_|  _|_|_|_|
-        _|    _|  _|    _|  _|        _|              _|    _|_|    _|  _|              _|        _|    _|  _|        _|
-        _|_|_|_|  _|    _|  _|  _|_|  _|  _|_|    _|    _|  _|  _|  _|  _|_|      _|_|_|    _|_|_|_|  _|        _|_|_|
-        _|    _|  _|    _|  _|    _|  _|    _|    _|    _|    _|_|  _|    _|      _|        _|    _|  _|        _|
-        _|    _|    _|_|      _|_|_|    _|_|_|  _|_|_|  _|      _|    _|_|_|      _|        _|    _|    _|_|_|  _|_|_|_|
+OS: macOS (Apple Silicon M1/M2/M3 等推奨。mlx-whisper のため)
 
-        A token is already saved on your machine. Run `huggingface-cli whoami` to get more information or `huggingface-cli logout` if you want to log out.
-        Setting a new token will erase the existing one.
-        To log in, `huggingface_hub` requires a token generated from [https://huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) .
-      Enter your token (input will not be visible): [ここに取得したアクセストークンをペースト]
-      ```
+Python: 3.9 以上
 
-## コマンドの使い方
+FFmpeg: システムにインストールされていること（音声の前処理に使用します）
 
-`main.py` スクリプトはコマンドライン引数を受け取ります。`uv` を使って実行します。
+Macの場合: brew install ffmpeg
 
-`num_speakers` は指定すると話者分離の精度が向上します。
+インストール
 
-**基本コマンド:**
+リポジトリの準備
+このディレクトリに移動します。
 
-```bash
-uv run main.py <audio_file_path> [OPTIONS]
-```
+依存パッケージのインストール
+高速なパッケージマネージャ uv の使用を推奨します。
 
-**引数:**
+uv pip install -r pyproject.toml
 
-- **`audio_file_path` (必須):**
-  - 処理対象の音声ファイル（例: `.wav`, `.mp3`）へのパスを指定します。
-  - 例: `data/my_audio.wav`
+(標準の pip を使用する場合は pip install . を実行してください)
 
-- **`--output_csv_path PATH` (オプション):**
-  - 出力するCSVファイルのパスを指定します。
-  - 指定しない場合、スクリプトを実行したカレントディレクトリに `<音声ファイル名>-transcription-<YYYYMMDDHHMMSS>.csv` という形式で自動生成されます。
-  - 例: `--output_csv_path results/transcript.csv`
+Hugging Face トークンの準備
+Pyannote のモデル（speaker-diarization-3.1 など）を使用するには、Hugging Faceのアカウントとアクセストークンが必要です。
+また、以下のページで利用規約に同意しておく必要があります。
 
-- **`--transcription_model_id MODEL_ID` (オプション):**
-  - 文字起こしに使用する Hugging Face のモデルIDを指定します。
-  - デフォルト: `openai/whisper-large-v3`
-  - 他のモデル例: `openai/whisper-medium`, `openai/whisper-small` , `kotoba-tech/kotoba-whisper-v2.2`等。使用するモデルは事前に Hugging Face Hub で確認してください。
-  - 例: `--transcription_model_id openai/whisper-medium`
+pyannote/speaker-diarization-3.1
 
-- **`--mlx_model MODEL_ID` (オプション):**
-  - 文字起こしに使用する mlx-whisper 対応のモデルIDを指定します。（MacのApple Siliconに最適化されています）
-  - デフォルト: `mlx-community/whisper-large-v3-mlx`
-  - 他のモデル例: `mlx-community/whisper-large-v3-torbo`等。使用するモデルは事前に Hugging Face Hub で確認してください。
-  - 例: `--mlx_model mlx-community/whisper-small-mlx`
+pyannote/segmentation-3.0
 
-- **`--pyannote_model_id MODEL_ID` (オプション):**
-  - 話者分離に使用する Hugging Face の Pyannote モデルIDを指定します。
-  - デフォルト: `pyannote/speaker-diarization-3.1`
-  - 他のモデルを使用する場合は、そのモデルIDを指定します。
-  - 例: `--pyannote_model_id pyannote/speaker-diarization-2.1` (古いモデルなど)
+環境変数の設定
+ディレクトリ内に .env ファイルを作成し、取得したトークンを記述します。
 
-- **`--num_speakers N` (オプション):**
-  - 音声ファイルに含まれる話者の数を整数で指定します。
-  - 指定しない場合、モデルが自動的に話者数を推定します。
-  - **事前に話者数がわかっている場合は、このオプションを指定することで、話者分離の精度が向上する可能性があります。**
-  - 例: `--num_speakers 3`
+HF*TOKEN=hf*ここにあなたのHuggingFaceトークンを記述
 
-**実行例:**
+使い方
 
-1.  **必須引数のみで実行 (他はデフォルト値を使用):**
+基本的には main.py を実行します。
 
-    ```bash
-    uv run main.py path/to/your/audio.mp4
-    ```
+基本的な実行（登録話者がいる場合）
 
-    - 出力ファイルはカレントディレクトリに `audio-transcription-YYYYMMDDHHMMSS.csv` のような名前で生成されます。
-    - mlx-community/whisper-large-v3-mlx と pyannote/speaker-diarization-3.1 を使用し、話者数は自動推定されます。
+処理対象の音声ファイルの後に、--registry オプションで「登録名=音声ファイルへのパス」を指定します（複数指定可能）。
 
-2.  **オプションを指定して実行 (話者数を指定して精度向上を期待):**
+uv run python main.py 対象の会議録音.mp4 \
+ --registry UserA=UserAのサンプル音声.wav UserB=UserBのサンプル音声.wav
 
-    ```bash
-    uv run main.py input/meeting.wav --output_csv_path output/meeting_transcript.csv --num_speakers 4 --mlx_model mlx-community/whisper-medium-mlx
-    ```
+登録話者なしで実行（分離と文字起こしのみ）
 
-    - `input/meeting.wav` を処理します。
-    - 結果は `output/meeting_transcript.csv` に保存されます。
-    - 話者数を4人と指定します。これにより話者分離の精度向上が期待できます。
-    - 文字起こしには Whisper-medium モデルを使用します。
+登録話者を指定しない場合は、自動的に割り振られたクラスターID（例: SPEAKER_00）が出力されます。
 
-## 出力ファイルの説明
+uv run python main.py 対象の会議録音.mp4
 
-スクリプトは、話者分離と文字起こしの結果をCSVファイルに出力します。
+オプション引数
 
-- **ファイル名:**
-  - `--output_csv_path` で指定されたパスに出力されます。
-  - 指定がない場合は、カレントディレクトリに `<入力ファイル名>-transcription-<YYYYMMDDHHMMSS>.csv` という名前で生成されます。 (`<YYYYMMDDHHMMSS>` は実行時のタイムスタンプです。)
+コマンドラインから様々なカスタマイズが可能です。
 
-- **フォーマット:**
-  - CSVファイルはUTF-8エンコーディング (BOM付き) で保存されます。
-  - 以下の列を含みます:
-    - `start`: 発話セグメントの開始時間 (フォーマット: `HH:MM:SS`)
-    - `end`: 発話セグメントの終了時間 (フォーマット: `HH:MM:SS`)
-    - `speaker`: 話者ラベル。個別の仮割り当ては出力せず、すべて `speaker` として記録されます。
-    - `text`: 文字起こしされたテキスト内容。処理中にエラーが発生した場合、`[エラー内容]` (例: `[Transcription failed]`) が記録されることがあります。
+uv run python main.py 対象音声.mp4 [オプション]
 
-- **データ例:**
-  ```csv
-  "start","end","speaker","text"
-  "00:00:00","00:00:04","speaker","さて今回はテクニカルライティング入門講座の抜粋資料ですねはい"
-  "00:00:05","00:00:11","speaker","技術者にとって、この書くスキルって、結構永遠の課題みたいなところがあるかもしれません。"
-  "00:00:11","00:00:15","speaker","そうですね苦手意識持ってる方は少なくないですよね"
-  "00:00:15","00:00:16","speaker","ですよね"
-  "00:00:16","00:00:27","speaker","今日はそのあたりを克服して、情報を明確にかつ簡潔に伝えるための実践的なヒント、その革新部分を一緒に掘り下げていきましょうか。"
-  ```
+引数
+
+説明
+
+デフォルト値
+
+audio_file_path
+
+[必須] 処理対象の音声/動画ファイルのパス
+
+(なし)
+
+--registry
+
+登録音声。名前=ファイルパス の形式で複数指定可能
+
+[]
+
+--output_csv_path
+
+出力するCSVファイルのパス（省略時は現在時刻で自動生成）
+
+自動生成
+
+--threshold
+
+話者一致判定のしきい値。これより距離が遠いと Unknown 扱い
+
+0.5
+
+--num_speakers
+
+音声内の既知の総話者数（わかっている場合指定すると精度向上）
+
+None (自動推定)
+
+--hf_token
+
+Hugging Face トークン（.env より優先されます）
+
+.env の値
+
+--embedding_model
+
+話者照合に使用するモデル
+
+pyannote/embedding
+
+--mlx_model
+
+WhisperモデルID
+
+mlx-community/whisper-large-v3-mlx
+
+--pyannote_model_id
+
+DiarizationモデルID
+
+pyannote/speaker-diarization-3.1
+
+処理の仕組み（照合ロジック）
+
+--registry で渡された各音声から、声紋（埋め込みベクトル）を抽出・正規化しメモリに保持します。
+
+対象音声を Pyannote で話者分離し、各クラスター（声のまとまり）の中で最も長い発話区間を抽出します。
+
+その区間の音声から声紋を抽出し、事前登録された声紋とコサイン距離を計算します。
+
+最も距離が近い（最近傍の）登録話者を候補とします。
+
+その候補との距離が --threshold (デフォルト0.5) 以下であればその名前を割り当て、超えていれば Unknown_X として扱います。
+
+出力
+
+実行が完了すると、指定したパス（または自動生成されたファイル名）にCSVが出力されます。
+
+出力例 (result.csv):
+
+"start","end","speaker","text"
+"00:00:01","00:00:05","UserA","こんにちは、本日の会議を始めます。"
+"00:00:05","00:00:08","UserB","よろしくお願いします。"
+"00:00:09","00:00:12","Unknown_1","（※登録外の人の発言）音声テストです。"
