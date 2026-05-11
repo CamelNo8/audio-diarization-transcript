@@ -55,6 +55,11 @@ class SpeakerIdentifier:
 
         return embedding_array / norm
 
+    def _next_unknown_name(self) -> str:
+        name = f"Unknown_{self.unknown_counter}"
+        self.unknown_counter += 1
+        return name
+
     def identify_speaker(self, embedding: np.ndarray) -> Tuple[str, Optional[float]]:
         """抽出した特徴量と登録話者を比較し、推定話者名とコサイン距離を返す"""
         name, best_dist, _ = self.identify_speaker_with_distances(embedding)
@@ -66,9 +71,7 @@ class SpeakerIdentifier:
         """推定話者名、最短距離、全候補の距離を返す"""
         if not self.registry_embeddings:
             # 登録話者がいない場合はすぐにUnknownを返す
-            name = f"Unknown_{self.unknown_counter}"
-            self.unknown_counter += 1
-            return name, None, None
+            return self._next_unknown_name(), None, None
 
         distances = {}
         for name, reg_embedding in self.registry_embeddings.items():
@@ -83,6 +86,4 @@ class SpeakerIdentifier:
         if best_dist <= self.threshold:
             return best_name, best_dist, distances
 
-        name = f"Unknown_{self.unknown_counter}"
-        self.unknown_counter += 1
-        return name, best_dist, distances
+        return self._next_unknown_name(), best_dist, distances

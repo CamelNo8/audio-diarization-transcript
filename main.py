@@ -109,11 +109,10 @@ def main() -> int:
 
     args = parse_args()
 
-    audio_file_path = args.audio_file_path
     output_csv_path = args.output_csv_path
     
-    if not audio_file_path.is_file():
-        logging.critical(f"Critical Error: 対象の音声ファイルが見つかりません {audio_file_path}")
+    if not args.audio_file_path.is_file():
+        logging.critical(f"Critical Error: 対象の音声ファイルが見つかりません {args.audio_file_path}")
         return 1
     
     if not args.hf_token:
@@ -122,7 +121,7 @@ def main() -> int:
 
     if output_csv_path is None:
         try:
-            output_csv_path = create_transcript_csv_path(audio_file_path)
+            output_csv_path = create_transcript_csv_path(args.audio_file_path)
             logging.info(f"Output CSV path defaulting to: {output_csv_path}")
         except Exception as e:
             logging.critical(f"Critical Error: CSVパスの自動生成に失敗しました: {e}")
@@ -164,7 +163,7 @@ def main() -> int:
     # 音声の処理と文字起こしを実行
     try:
         with AudioProcessor(
-            audio_file=audio_file_path,
+            audio_file=args.audio_file_path,
             output_csv_path=output_csv_path,
             mlx_model_id=args.mlx_model,
             pyannote_model_id=args.pyannote_model_id,

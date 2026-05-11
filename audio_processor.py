@@ -75,7 +75,7 @@ class AudioProcessor:
     def __enter__(self):
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, _exc_type, _exc_val, _exc_tb):
         self.cleanup()
 
     def cleanup(self):
@@ -85,6 +85,24 @@ class AudioProcessor:
                 self.temp_wav_path.unlink()
             except Exception as e:
                 logging.error(f"Failed to delete temporary file: {e}")
+
+    def _select_device(self) -> torch.device:
+        if torch.cuda.is_available():
+            return torch.device("cuda")
+        if torch.backends.mps.is_available():
+            return torch.device("mps")
+        return torch.device("cpu")
+
+    def _set_speaker_metadata(
+        self,
+        cluster_id: str,
+        speaker_name: str,
+        distance: Optional[float],
+        candidate_distances: Optional[Dict[str, float]],
+    ) -> None:
+        self.speaker_mapping[cluster_id] = speaker_name
+        self.speaker_distance_mapping[cluster_id] = distance
+        self.speaker_candidate_distance_mapping[cluster_id] = candidate_distances
 
     def prepare_audio(self):
         """ffmpegを使用して任意の音声/動画ファイルをWAV形式の一時ファイルに変換します。"""
@@ -118,12 +136,7 @@ class AudioProcessor:
         try:
             # use_auth_tokenパラメータを使用して初期化
             pipeline = Pipeline.from_pretrained(self.pyannote_model_id, use_auth_token=self.hf_token)
-            if torch.cuda.is_available():
-                pipeline.to(torch.device("cuda"))
-            elif torch.backends.mps.is_available():
-                pipeline.to(torch.device("mps"))
-            else:
-                pipeline.to(torch.device("cpu"))
+            pipeline.to(self._select_device())
         except Exception as e:
             logging.critical(f"Error loading Pyannote pipeline: {e}")
             return False
@@ -157,9 +170,12 @@ class AudioProcessor:
                         self.identifier.identify_speaker_with_distances(embedding)
                     )
                     
-                    self.speaker_mapping[cluster_id] = identified_name
-                    self.speaker_distance_mapping[cluster_id] = cosine_distance
-                    self.speaker_candidate_distance_mapping[cluster_id] = candidate_distances
+                    self._set_speaker_metadata(
+                        cluster_id,
+                        identified_name,
+                        cosine_distance,
+                        candidate_distances,
+                    )
                     logging.info(
                         f"Cluster '{cluster_id}' identified as -> {identified_name} "
                         f"(cosine_distance={cosine_distance:.6f})"
@@ -168,15 +184,16 @@ class AudioProcessor:
                     )
                 except Exception as e:
                     logging.warning(f"Failed to identify speaker for cluster {cluster_id}: {e}")
-                    self.speaker_mapping[cluster_id] = f"Unknown_{cluster_id}"
-                    self.speaker_distance_mapping[cluster_id] = None
-                    self.speaker_candidate_distance_mapping[cluster_id] = None
+                    self._set_speaker_metadata(
+                        cluster_id,
+                        f"Unknown_{cluster_id}",
+                        None,
+                        None,
+                    )
         else:
             # 識別器が設定されていない場合はクラスターIDをそのまま使用
             for cluster_id in diarization.labels():
-                self.speaker_mapping[cluster_id] = cluster_id
-                self.speaker_distance_mapping[cluster_id] = None
-                self.speaker_candidate_distance_mapping[cluster_id] = None
+                self._set_speaker_metadata(cluster_id, cluster_id, None, None)
 
         # 4. 全文一括文字起こし (mlx-whisper)
         logging.info(f"Running mlx-whisper transcription ({self.mlx_model_id})...")
