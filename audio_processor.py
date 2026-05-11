@@ -30,14 +30,14 @@ warnings.filterwarnings("ignore", category=FutureWarning, module="huggingface_hu
 
 
 def format_time(seconds: float) -> str:
-    """秒数を HH:MM:SS 形式の文字列に変換します。"""
-    delta = datetime.timedelta(seconds=seconds)
-    total_seconds = int(delta.total_seconds())
-    hours, remainder = divmod(total_seconds, 3600)
-    minutes, seconds = divmod(remainder, 60)
-    if total_seconds < 0:
-        return "00:00:00"
-    return f"{hours:02}:{minutes:02}:{seconds:02}"
+    """秒数を HH:MM:SS:ms 形式（ミリ秒は3桁）に丸めて変換します。"""
+    if seconds < 0:
+        return "00:00:00:000"
+    total_ms = int(round(seconds * 1000))
+    hours, remainder_ms = divmod(total_ms, 3600 * 1000)
+    minutes, remainder_ms = divmod(remainder_ms, 60 * 1000)
+    secs, millis = divmod(remainder_ms, 1000)
+    return f"{hours:02}:{minutes:02}:{secs:02}:{millis:03}"
 
 def create_transcript_csv_path(audio_file_path: Path) -> Path:
     """指定された音声ファイルパスから、出力CSVファイルのPathを生成します。"""
