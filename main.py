@@ -27,10 +27,9 @@ logging.basicConfig(
     stream=sys.stdout,
 )
 
-_SPEAKER_IDENTIFIER_CACHE: dict[str, SpeakerIdentifier] = {}  # [OPTIMIZED]
+_SPEAKER_IDENTIFIER_CACHE: dict[str, SpeakerIdentifier] = {}
 
 
-# [OPTIMIZED]
 def get_cached_speaker_identifier(
     model_name: str, hf_token: str, threshold: float
 ) -> SpeakerIdentifier:
@@ -43,19 +42,19 @@ def get_cached_speaker_identifier(
                 threshold=threshold,
             )
         except Exception:
-            os.environ["HF_HUB_OFFLINE"] = "0"  # [OPTIMIZED]
+            os.environ["HF_HUB_OFFLINE"] = "0"
             cached = SpeakerIdentifier(
                 model_name=model_name,
                 hf_token=hf_token,
                 threshold=threshold,
             )
         finally:
-            os.environ["HF_HUB_OFFLINE"] = "1"  # [OPTIMIZED]
-        _SPEAKER_IDENTIFIER_CACHE[model_name] = cached  # [OPTIMIZED]
+            os.environ["HF_HUB_OFFLINE"] = "1"
+        _SPEAKER_IDENTIFIER_CACHE[model_name] = __cached__
     else:
-        cached.threshold = threshold  # [OPTIMIZED]
-        cached.registry_embeddings = {}  # [OPTIMIZED]
-        cached.unknown_counter = 1  # [OPTIMIZED]
+        cached.threshold = threshold
+        cached.registry_embeddings = {}
+        cached.unknown_counter = 1
     return cached
 
 

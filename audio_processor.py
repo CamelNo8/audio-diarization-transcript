@@ -197,7 +197,7 @@ class AudioProcessor:
                     logging.warning(f"Failed to identify speaker for cluster {cluster_id}: {e}")
                     self._set_speaker_metadata(
                         cluster_id,
-                        f"Unknown_{cluster_id}",
+                        "Unknown",
                         None,
                         None,
                     )
@@ -211,7 +211,7 @@ class AudioProcessor:
                     logging.warning(f"Failed to identify speaker for cluster {cluster_id}: {e}")
                     self._set_speaker_metadata(
                         cluster_id,
-                        f"Unknown_{cluster_id}",
+                        "Unknown",
                         None,
                         None,
                     )
@@ -238,7 +238,7 @@ class AudioProcessor:
                     logging.warning(f"Failed to identify speaker for cluster {cluster_id}: {e}")
                     self._set_speaker_metadata(
                         cluster_id,
-                        f"Unknown_{cluster_id}",
+                        "Unknown",
                         None,
                         None,
                     )
