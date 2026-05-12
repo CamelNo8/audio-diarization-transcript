@@ -9,3 +9,6 @@
 *.mp4
 *.csv
 *.env
+__pycache__/
+*.pyc
+*.pyo

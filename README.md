@@ -47,6 +47,13 @@ pyannote/segmentation-3.0
 
 HF*TOKEN=hf*ここにあなたのHuggingFaceトークンを記述
 
+Hugging Face サーバー確認のスキップについて
+実行時の速度を優先するため、モデル読み込み時のサーバー確認（オンライン問い合わせ）をスキップする設定を入れています。
+その結果、モデルの更新が自動取得されない点に注意してください。
+更新を確認したい場合は、月1回程度、環境変数を一時的に HF_HUB_OFFLINE=0 にして実行してください。
+例:
+HF_HUB_OFFLINE=0 uv run python main.py 対象の会議録音.mp4
+
 使い方
 
 基本的には main.py を実行します。

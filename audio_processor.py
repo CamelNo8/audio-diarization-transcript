@@ -51,6 +51,8 @@ def create_transcript_csv_path(audio_file_path: Path) -> Path:
 class AudioProcessor:
     """音声ファイルの前処理、話者分離・特定、文字起こしを行い、結果をCSVに出力するクラス。"""
 
+    _PIPELINE_CACHE: Dict[tuple[str, str], Pipeline] = {}  # [OPTIMIZED]
+
     def __init__(
         self,
         audio_file: Path,
@@ -93,6 +95,25 @@ class AudioProcessor:
             return torch.device("mps")
         return torch.device("cpu")
 
+    # [OPTIMIZED]
+    @classmethod
+    def _get_cached_pipeline(
+        cls, model_id: str, hf_token: str, device: torch.device
+    ) -> Pipeline:
+        cache_key = (model_id, hf_token)
+        pipeline = cls._PIPELINE_CACHE.get(cache_key)
+        if pipeline is None:
+            logging.info(f"Loading Pyannote pipeline ({model_id})...")  # [OPTIMIZED]
+            try:
+                pipeline = Pipeline.from_pretrained(
+                    model_id, use_auth_token=hf_token, local_files_only=True
+                )  # [OPTIMIZED]
+            except Exception:
+                pipeline = Pipeline.from_pretrained(model_id, use_auth_token=hf_token)  # [OPTIMIZED]
+            cls._PIPELINE_CACHE[cache_key] = pipeline  # [OPTIMIZED]
+        pipeline.to(device)
+        return pipeline
+
     def _set_speaker_metadata(
         self,
         cluster_id: str,
@@ -132,13 +153,15 @@ class AudioProcessor:
         self.prepare_audio()
 
         # 2. 話者分離 (Pyannote Diarization)
-        logging.info(f"Loading Pyannote pipeline ({self.pyannote_model_id})...")
         try:
             # use_auth_tokenパラメータを使用して初期化
-            pipeline = Pipeline.from_pretrained(self.pyannote_model_id, use_auth_token=self.hf_token)
-            pipeline.to(self._select_device())
+            pipeline = self._get_cached_pipeline(  # [OPTIMIZED]
+                self.pyannote_model_id,
+                self.hf_token,
+                self._select_device(),
+            )
         except Exception as e:
-            logging.critical(f"Error loading Pyannote pipeline: {e}")
+            logging.critical(f"Error loading Pyannote pipeline: {e}")  # [OPTIMIZED]
             return False
 
         logging.info("Running speaker diarization...")
@@ -156,20 +179,49 @@ class AudioProcessor:
         if self.identifier:
             logging.info("Identifying speakers for each cluster...")
             audio_io = Audio()
+            cluster_segments = []  # [OPTIMIZED]
             for cluster_id in diarization.labels():
                 segments = diarization.label_timeline(cluster_id)
                 # 特徴量抽出の安定性を高めるため、1秒以上のセグメントを優先
                 valid_segments = [s for s in segments if s.duration >= 1.0]
                 longest_segment = max(valid_segments, key=lambda s: s.duration) if valid_segments else max(segments, key=lambda s: s.duration)
-                
+                cluster_segments.append((cluster_id, longest_segment))  # [OPTIMIZED]
+
+            waveforms = []  # [OPTIMIZED]
+            for cluster_id, longest_segment in cluster_segments:
                 try:
                     # クラスターの代表音声区間から波形を取得
                     waveform, sr = audio_io.crop(str(self.temp_wav_path), longest_segment)
+                    waveforms.append((cluster_id, waveform, sr))  # [OPTIMIZED]
+                except Exception as e:
+                    logging.warning(f"Failed to identify speaker for cluster {cluster_id}: {e}")
+                    self._set_speaker_metadata(
+                        cluster_id,
+                        f"Unknown_{cluster_id}",
+                        None,
+                        None,
+                    )
+
+            embeddings = []  # [OPTIMIZED]
+            for cluster_id, waveform, sr in waveforms:
+                try:
                     embedding = self.identifier.get_embedding_from_waveform(waveform, sr)
+                    embeddings.append((cluster_id, embedding))  # [OPTIMIZED]
+                except Exception as e:
+                    logging.warning(f"Failed to identify speaker for cluster {cluster_id}: {e}")
+                    self._set_speaker_metadata(
+                        cluster_id,
+                        f"Unknown_{cluster_id}",
+                        None,
+                        None,
+                    )
+
+            for cluster_id, embedding in embeddings:
+                try:
                     identified_name, cosine_distance, candidate_distances = (
                         self.identifier.identify_speaker_with_distances(embedding)
                     )
-                    
+
                     self._set_speaker_metadata(
                         cluster_id,
                         identified_name,

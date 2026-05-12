@@ -15,6 +15,8 @@ except ImportError:
     print("Warning: python-dotenv is not installed. Environment variables from .env will not be loaded automatically.")
     print("To install: uv pip install python-dotenv")
 
+os.environ["HF_HUB_OFFLINE"] = "1"  # [OPTIMIZED]
+
 from speaker_identification import SpeakerIdentifier
 from audio_processor import AudioProcessor, create_transcript_csv_path
 
@@ -24,6 +26,37 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
     stream=sys.stdout,
 )
+
+_SPEAKER_IDENTIFIER_CACHE: dict[str, SpeakerIdentifier] = {}  # [OPTIMIZED]
+
+
+# [OPTIMIZED]
+def get_cached_speaker_identifier(
+    model_name: str, hf_token: str, threshold: float
+) -> SpeakerIdentifier:
+    cached = _SPEAKER_IDENTIFIER_CACHE.get(model_name)
+    if cached is None:
+        try:
+            cached = SpeakerIdentifier(
+                model_name=model_name,
+                hf_token=hf_token,
+                threshold=threshold,
+            )
+        except Exception:
+            os.environ["HF_HUB_OFFLINE"] = "0"  # [OPTIMIZED]
+            cached = SpeakerIdentifier(
+                model_name=model_name,
+                hf_token=hf_token,
+                threshold=threshold,
+            )
+        finally:
+            os.environ["HF_HUB_OFFLINE"] = "1"  # [OPTIMIZED]
+        _SPEAKER_IDENTIFIER_CACHE[model_name] = cached  # [OPTIMIZED]
+    else:
+        cached.threshold = threshold  # [OPTIMIZED]
+        cached.registry_embeddings = {}  # [OPTIMIZED]
+        cached.unknown_counter = 1  # [OPTIMIZED]
+    return cached
 
 
 def parse_args() -> argparse.Namespace:
@@ -134,10 +167,10 @@ def main() -> int:
     if args.registry:
         try:
             registry_paths = parse_registry_entries(args.registry)
-            identifier = SpeakerIdentifier(
+            identifier = get_cached_speaker_identifier(  # [OPTIMIZED]
                 model_name=args.embedding_model,
                 hf_token=args.hf_token,
-                threshold=args.threshold
+                threshold=args.threshold,
             )
             logging.info("登録話者の特徴量を抽出しています...")
             used_registered_names: set[str] = set()
