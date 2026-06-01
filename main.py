@@ -29,6 +29,11 @@ logging.basicConfig(
 
 _SPEAKER_IDENTIFIER_CACHE: dict[str, SpeakerIdentifier] = {}
 
+# 登録音声ディレクトリで対象とする拡張子
+SUPPORTED_REGISTRY_EXTENSIONS = {
+    ".wav", ".mp3", ".m4a", ".flac", ".mp4", ".mov", ".ogg", ".opus", ".aac", ".wma",
+}
+
 
 def get_cached_speaker_identifier(
     model_name: str, hf_token: str, threshold: float
@@ -50,12 +55,45 @@ def get_cached_speaker_identifier(
             )
         finally:
             os.environ["HF_HUB_OFFLINE"] = "1"
-        _SPEAKER_IDENTIFIER_CACHE[model_name] = __cached__
+        _SPEAKER_IDENTIFIER_CACHE[model_name] = cached
     else:
         cached.threshold = threshold
         cached.registry_embeddings = {}
         cached.unknown_counter = 1
     return cached
+
+
+def collect_registry_files(registry_dir: Path) -> dict[str, Path]:
+    """声紋登録ディレクトリ内の音声ファイルを収集し、{話者名: パス} の辞書を返す。
+
+    話者名はファイル名の stem を使用する。同名 stem が複数ある場合はエラー。
+    """
+    if not registry_dir.is_dir():
+        raise NotADirectoryError(f"声紋登録ディレクトリが存在しません: {registry_dir}")
+
+    parsed: dict[str, Path] = {}
+    for path in sorted(registry_dir.iterdir()):
+        if not path.is_file():
+            continue
+        if path.suffix.lower() not in SUPPORTED_REGISTRY_EXTENSIONS:
+            continue
+        name = path.stem
+        if not name:
+            raise ValueError(f"ファイル名が空のため登録できません: {path}")
+        if name in parsed:
+            raise ValueError(
+                f"登録ファイル名（stem）が重複しています: {name} "
+                f"({parsed[name]} と {path})"
+            )
+        parsed[name] = path
+
+    if not parsed:
+        raise ValueError(
+            f"声紋登録ディレクトリ内に対象音声ファイルが見つかりません: {registry_dir} "
+            f"(対象拡張子: {sorted(SUPPORTED_REGISTRY_EXTENSIONS)})"
+        )
+
+    return parsed
 
 
 def parse_args() -> argparse.Namespace:
@@ -66,11 +104,11 @@ def parse_args() -> argparse.Namespace:
         "audio_file_path", type=Path, help="文字起こし対象の音声/動画ファイルのパス"
     )
     parser.add_argument(
-        "--registry",
-        nargs="+",
-        default=[],
-        metavar="NAME=PATH",
-        help="登録音声。形式は '名前=ファイルパス' (複数指定可)",
+        "--registry_dir",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help="声紋登録用音声ファイルを格納したディレクトリ。ディレクトリ内の対応音声ファイルを全て自動登録します（話者名はファイル名 stem）",
     )
     parser.add_argument(
         "--output_csv_path",
@@ -115,24 +153,6 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def parse_registry_entries(entries: list[str]) -> dict[str, Path]:
-    """NAME=PATH 形式の引数を辞書に変換する"""
-    parsed: dict[str, Path] = {}
-    for entry in entries:
-        if "=" not in entry:
-            raise ValueError(f"registry の形式が不正です: {entry} (NAME=PATH 形式で指定してください)")
-        name, path = entry.split("=", 1)
-        name, path_str = name.strip(), path.strip()
-        
-        if not name:
-            raise ValueError(f"名前が空です: {entry}")
-        if name in parsed:
-            raise ValueError(f"重複した名前です: {name}")
-            
-        parsed[name] = Path(path_str)
-    return parsed
-
-
 def main() -> int:
     # ffmpegの存在チェック
     if not shutil.which("ffmpeg"):
@@ -162,35 +182,26 @@ def main() -> int:
     logging.info("スクリプトの実行を開始します...")
 
     identifier = None
-    # 登録音声がある場合のみ話者照合機能（SpeakerIdentifier）を初期化
-    if args.registry:
+    # 声紋登録ディレクトリがある場合のみ話者照合機能（SpeakerIdentifier）を初期化
+    if args.registry_dir is not None:
         try:
-            registry_paths = parse_registry_entries(args.registry)
+            registry_paths = collect_registry_files(args.registry_dir)
             identifier = get_cached_speaker_identifier(  # [OPTIMIZED]
                 model_name=args.embedding_model,
                 hf_token=args.hf_token,
                 threshold=args.threshold,
             )
-            logging.info("登録話者の特徴量を抽出しています...")
-            used_registered_names: set[str] = set()
-            for alias, path in registry_paths.items():
-                # 出力ラベルは登録ファイル名（拡張子除く）を使う
-                registered_name = path.stem or alias
-                if registered_name in used_registered_names:
-                    raise ValueError(
-                        f"登録ファイル名が重複しています: {registered_name}。"
-                        "同名ファイルを避けるか、ファイル名を変更してください。"
-                    )
-                used_registered_names.add(registered_name)
-
+            logging.info(
+                f"登録話者の特徴量を抽出しています... ({len(registry_paths)} 名: {args.registry_dir})"
+            )
+            for registered_name, path in registry_paths.items():
                 identifier.register_speaker(registered_name, path)
-                logging.info(f"Registry alias '{alias}' -> speaker label '{registered_name}'")
-                
+
         except Exception as exc:
             logging.critical(f"話者照合モジュールの初期化エラー: {exc}", exc_info=True)
             return 1
     else:
-        logging.info("--registry オプションが指定されていないため、話者の特定（名前の割り当て）はスキップします。")
+        logging.info("--registry_dir オプションが指定されていないため、話者の特定（名前の割り当て）はスキップします。")
 
     # 音声の処理と文字起こしを実行
     try:
