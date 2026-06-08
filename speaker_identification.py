@@ -151,8 +151,9 @@ class SpeakerIdentifier:
         return embedding_array / norm
 
     def _next_unknown_name(self) -> str:
+        name = f"Unknown_{self.unknown_counter:02d}"
         self.unknown_counter += 1
-        return "Unknown"
+        return name
 
     def identify_speaker(self, embedding: np.ndarray) -> Tuple[str, Optional[float]]:
         """抽出した特徴量と登録話者を比較し、推定話者名とコサイン距離を返す"""

@@ -212,6 +212,7 @@ def main() -> int:
             pyannote_model_id=args.pyannote_model_id,
             hf_token=args.hf_token,
             identifier=identifier,
+            registry_dir=args.registry_dir,
         ) as processor:
             
             success = processor.process_and_save_to_csv(known_num_speakers=args.num_speakers)
