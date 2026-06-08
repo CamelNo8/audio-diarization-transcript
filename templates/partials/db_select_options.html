@@ -1,0 +1,4 @@
+<option value="">-- DB を選択 --</option>
+{% for db in databases %}
+<option value="{{ db.name }}" {% if db.name == selected %}selected{% endif %}>{{ db.name }} ({{ db.speaker_count }} 話者)</option>
+{% endfor %}

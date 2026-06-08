@@ -1,0 +1,63 @@
+<script>
+    (function () {
+        const jobId = {{ job_id | tojson }};
+        const filename = {{ filename | tojson }};
+        const jobInput = document.getElementById('step2-job-id');
+        const statusEl = document.getElementById('step2-stt-status');
+        const btn = document.getElementById('matching-submit-btn');
+        if (jobInput) jobInput.value = jobId;
+        if (statusEl) {
+            statusEl.className = 'text-sm border border-blue-200 rounded-lg px-3 py-2 bg-blue-50 text-blue-700';
+            statusEl.innerHTML = '✓ Step 1 出力 <strong>' + filename.replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c])) + '</strong> を使用';
+        }
+        if (btn) btn.disabled = false;
+    })();
+</script>
+<div class="bg-purple-50 border-l-4 border-purple-500 p-4 rounded-r shadow-sm animate-fade-in-up">
+    <div class="flex">
+        <div class="flex-shrink-0">
+            <svg class="h-5 w-5 text-purple-500" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+            </svg>
+        </div>
+        <div class="ml-3 w-full">
+            <h3 class="text-sm font-medium text-purple-800">文字起こし完了！</h3>
+            <div class="mt-2 text-sm text-purple-700">
+                <p>ファイル <strong>{{ filename }}</strong> が生成されました。</p>
+                <p class="mt-1 text-xs text-purple-600">
+                    Step 2 の「音声認識 SRTファイル」にこの SRT をアップロードしてください。
+                </p>
+            </div>
+
+            <div class="mt-4 flex flex-col gap-2">
+                <a href="{{ download_url }}"
+                   class="text-sm font-medium text-purple-600 hover:text-purple-500 underline decoration-2 decoration-purple-300 hover:decoration-purple-500 transition-all">
+                    文字起こしSRTをダウンロード &rarr;
+                </a>
+
+                {% if unknown_count and unknown_count > 0 %}
+                <a href="/unknowns/{{ job_id }}" target="_blank"
+                   class="mt-2 inline-block bg-amber-100 hover:bg-amber-200 border border-amber-300 rounded-lg px-3 py-2 text-sm font-medium text-amber-800 transition">
+                    🔍 未登録話者が {{ unknown_count }} 個あります — ラベル付けする
+                </a>
+                {% else %}
+                <p class="mt-2 text-xs text-purple-500">✓ 未登録話者はありませんでした。</p>
+                {% endif %}
+            </div>
+
+            {% if log_excerpt %}
+            <details class="mt-4">
+                <summary class="cursor-pointer text-xs text-purple-600 select-none">📝 処理ログを表示</summary>
+                <pre class="mt-2 text-xs bg-white p-2 rounded border border-purple-200 max-h-64 overflow-auto whitespace-pre-wrap">{{ log_excerpt }}</pre>
+            </details>
+            {% endif %}
+        </div>
+    </div>
+</div>
+<style>
+    @keyframes fadeInUp {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    .animate-fade-in-up { animation: fadeInUp 0.5s ease-out forwards; }
+</style>

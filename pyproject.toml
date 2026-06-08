@@ -10,14 +10,32 @@ authors = [
     { name = "Your Name", email = "your.email@example.com" }
 ]
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
-    "torch>=2.0.0",
-    "pyannote-audio>=3.1.0",
+    # torch/torchaudio は同じマイナーで揃える必要あり。pyannote-audio 3.x は torchaudio<2.8 を想定
+    "torch>=2.2,<2.8",
+    "torchaudio>=2.2,<2.8",
+    "pyannote-audio>=3.3.0,<4.0",
+    "omegaconf>=2.3.0",  # pyannote 4.x で依存から外れたためのセーフティ
     "scipy>=1.10.0",
     "mlx-whisper>=0.2.0",  # Mac (Apple Silicon) 向けのWhisper実装
     "python-dotenv>=1.0.0",
     "numpy>=1.24.0",
+    # pyannote / mlx-whisper の互換性のためメジャー上限を制約
+    "huggingface_hub>=0.23,<1.0",
+    "transformers>=4.40,<5.0",
+    # 字幕統合（subtitle matcher / exporter）用
+    "pandas>=2.0.0",
+    "faiss-cpu>=1.7.4",
+    "sentence-transformers>=2.5.0,<6.0",
+    # FastAPI + htmx Web UI 用
+    "fastapi>=0.104.0",
+    "uvicorn>=0.24.0",
+    "jinja2>=3.1.0",
+    "python-multipart>=0.0.6",
+    # 背景音 / BGM 除去（ボーカル抽出）用。HuggingFace 経由でモデルを取得するため
+    # FB CDN への接続不可な環境でも動く
+    "audio-separator[cpu]>=0.21.0",
 ]
 
 [project.scripts]
@@ -30,4 +48,4 @@ audio-transcribe = "main:main"
 
 [tool.hatch.build.targets.wheel]
 modules = ["main"]
-only-include = ["main.py"]
+only-include = ["main.py", "app.py", "audio_processor.py", "speaker_identification.py", "subtitle_matcher.py", "subtitle_exporter.py"]

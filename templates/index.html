@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>音声 → 字幕 統合アプリ</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .htmx-indicator { display: none; }
+        .htmx-request .htmx-indicator { display: flex; }
+        .htmx-request.htmx-indicator { display: flex; }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800 min-h-screen">
+
+    <div class="max-w-7xl mx-auto px-6 py-12">
+        <header class="mb-12 text-center">
+            <h1 class="text-4xl font-bold text-gray-900 mb-4 tracking-tight">🎬 音声 → 字幕 統合アプリ</h1>
+            <p class="text-lg text-gray-600">文字起こし・話者照合 → 台本マッチング → 字幕SRT生成までを一括で行います。</p>
+            <p class="mt-3">
+                <a href="/databases" class="text-sm text-purple-600 hover:text-purple-700 underline">
+                    🗂️ 声紋データベース管理
+                </a>
+            </p>
+        </header>
+
+        <div class="grid lg:grid-cols-3 gap-8">
+
+            <!-- ============================================== -->
+            <!-- Step 1: 文字起こし & 話者分離 -->
+            <!-- ============================================== -->
+            <div class="bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-100">
+                <div class="bg-gradient-to-r from-purple-600 to-purple-500 px-6 py-4">
+                    <h2 class="text-xl font-bold text-white flex items-center">
+                        <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-14 0m7 7v4m0 0H8m4 0h4m-4-12a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/></svg>
+                        Step 1: 文字起こし & 話者分離
+                    </h2>
+                </div>
+                <div class="p-6">
+                    <p class="text-sm text-gray-500 mb-5">
+                        音声/動画 + 声紋登録ファイル群（任意）から、話者照合付きの文字起こしSRTを生成します。
+                    </p>
+                    <form hx-post="/process/transcription" hx-encoding="multipart/form-data"
+                          hx-target="#transcription-result" hx-indicator="#transcription-indicator">
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">音声/動画ファイル</label>
+                            <input type="file" name="audio_file"
+                                   accept=".wav,.mp3,.m4a,.flac,.mp4,.mov,.ogg,.opus,.aac,.wma"
+                                   required
+                                   class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100 transition-colors">
+                        </div>
+
+                        <div class="mb-4 border border-purple-100 rounded-lg p-3 bg-purple-50/40">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                🗣️ 声紋データベース
+                            </label>
+                            <div class="space-y-2 text-sm">
+                                <label class="flex items-center gap-2">
+                                    <input type="radio" name="db_choice" value="none" checked
+                                           onchange="toggleDbChoice()">
+                                    使わない（話者照合なし）
+                                </label>
+                                <label class="flex items-center gap-2">
+                                    <input type="radio" name="db_choice" value="existing"
+                                           onchange="toggleDbChoice()">
+                                    既存DBを使う
+                                </label>
+                                <div id="db-existing-block" class="hidden pl-6">
+                                    <div class="flex gap-1 items-center">
+                                        <select name="db_existing_name" id="db-existing-select"
+                                                class="flex-1 text-sm border border-gray-300 rounded px-2 py-1">
+                                            <option value="">-- DB を選択 --</option>
+                                            {% for db in databases %}
+                                            <option value="{{ db.name }}">{{ db.name }} ({{ db.speaker_count }} 話者)</option>
+                                            {% endfor %}
+                                        </select>
+                                        <button type="button" onclick="refreshDbSelect()"
+                                                title="DB一覧を再読み込み"
+                                                class="text-sm px-2 py-1 border border-gray-300 rounded hover:bg-gray-100">
+                                            🔄
+                                        </button>
+                                    </div>
+                                    <p id="db-empty-hint" class="text-xs text-amber-600 mt-1 {% if databases %}hidden{% endif %}">
+                                        DB がまだありません。<a href="/databases" target="_blank" class="underline">管理画面</a>で作成してください。
+                                    </p>
+                                </div>
+                                <label class="flex items-center gap-2">
+                                    <input type="radio" name="db_choice" value="new"
+                                           onchange="toggleDbChoice()">
+                                    新規DBを作成
+                                </label>
+                                <div id="db-new-block" class="hidden pl-6">
+                                    <input type="text" name="db_new_name" placeholder="新規DB名"
+                                           class="w-full text-sm border border-gray-300 rounded px-2 py-1">
+                                </div>
+                            </div>
+
+                            <div id="db-upload-block" class="hidden mt-3">
+                                <label class="block text-xs font-medium text-gray-600 mb-1">
+                                    このDBに追加する声紋ファイル（任意・複数可）
+                                </label>
+                                <input type="file" name="registry_files" multiple
+                                       accept=".wav,.mp3,.m4a,.flac,.mp4,.mov,.ogg,.opus,.aac,.wma"
+                                       class="block w-full text-xs text-gray-500 file:mr-3 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-purple-100 file:text-purple-700 hover:file:bg-purple-200 transition-colors">
+                                <p class="text-xs text-gray-400 mt-1">ファイル名（拡張子除く）が話者名として保存されます。</p>
+                            </div>
+                            <p class="text-xs text-gray-500 mt-2">
+                                <a href="/databases" target="_blank" class="text-purple-600 hover:underline">
+                                    → DB管理画面で話者を確認・編集
+                                </a>
+                            </p>
+                        </div>
+                        <script>
+                            function toggleDbChoice() {
+                                const v = document.querySelector('input[name="db_choice"]:checked').value;
+                                document.getElementById('db-existing-block').classList.toggle('hidden', v !== 'existing');
+                                document.getElementById('db-new-block').classList.toggle('hidden', v !== 'new');
+                                document.getElementById('db-upload-block').classList.toggle('hidden', v === 'none');
+                                if (v === 'existing') refreshDbSelect();
+                            }
+
+                            async function refreshDbSelect() {
+                                const sel = document.getElementById('db-existing-select');
+                                if (!sel) return;
+                                const current = sel.value;
+                                try {
+                                    const res = await fetch('/api/databases/select-options?selected=' + encodeURIComponent(current));
+                                    if (!res.ok) return;
+                                    sel.innerHTML = await res.text();
+                                    const hasDb = sel.querySelectorAll('option').length > 1;
+                                    document.getElementById('db-empty-hint').classList.toggle('hidden', hasDb);
+                                } catch (e) { /* ignore */ }
+                            }
+
+                            // 他タブでのDB変更を受信して自動更新
+                            if ('BroadcastChannel' in window) {
+                                const _ch = new BroadcastChannel('voice-databases');
+                                _ch.onmessage = (ev) => {
+                                    if (ev.data && ev.data.type === 'changed') refreshDbSelect();
+                                };
+                            }
+                            // ウィンドウフォーカス復帰時にも更新（管理タブから戻ってきた時の保険）
+                            window.addEventListener('focus', refreshDbSelect);
+                        </script>
+
+                        <div class="mb-4 border border-purple-100 rounded-lg p-3 bg-purple-50/40">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">🎤 背景音除去（声のみ抽出）</label>
+                            <div class="space-y-2 text-sm">
+                                <label class="flex items-start gap-2">
+                                    <input type="radio" name="denoise_mode" value="off" checked class="mt-0.5">
+                                    <span>
+                                        <strong>なし</strong>
+                                        <span class="block text-xs text-gray-500">元音声をそのまま文字起こし。BGM のない音声向け。</span>
+                                    </span>
+                                </label>
+                                <label class="flex items-start gap-2">
+                                    <input type="radio" name="denoise_mode" value="fast" class="mt-0.5">
+                                    <span>
+                                        <strong>高速</strong>（Kim_Vocal_2 / MDX, 約 80MB）
+                                        <span class="block text-xs text-gray-500">処理時間 +30秒〜1分。軽い BGM や雑音の除去に十分。</span>
+                                    </span>
+                                </label>
+                                <label class="flex items-start gap-2">
+                                    <input type="radio" name="denoise_mode" value="high" class="mt-0.5">
+                                    <span>
+                                        <strong>高品質</strong>（Mel-Band Roformer, 約 600MB）
+                                        <span class="block text-xs text-gray-500">処理時間 +1〜3分・メモリ 4GB+。楽器演奏や強い BGM が乗った音声向け。SDR 約 10.2 dB の SOTA モデル。</span>
+                                    </span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">出力SRTファイル名</label>
+                            <input type="text" name="output_srt_name" value="transcription.srt"
+                                   class="block w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-purple-400 focus:outline-none">
+                        </div>
+
+                        <details class="mb-5 border border-gray-200 rounded-lg">
+                            <summary class="cursor-pointer px-4 py-2 text-sm font-medium text-gray-600 select-none">
+                                ⚙️ 詳細設定
+                            </summary>
+                            <div class="px-4 pb-4 pt-2 space-y-3 text-sm">
+                                <div>
+                                    <label class="block text-xs text-gray-600 mb-1">話者一致しきい値（cos距離）</label>
+                                    <input type="number" name="threshold" value="0.5" step="0.05" min="0" max="1"
+                                           class="w-full border border-gray-300 rounded px-2 py-1">
+                                </div>
+                                <div>
+                                    <label class="block text-xs text-gray-600 mb-1">話者数（任意・空欄で自動推定）</label>
+                                    <input type="text" name="num_speakers" value=""
+                                           class="w-full border border-gray-300 rounded px-2 py-1">
+                                </div>
+                                <div>
+                                    <label class="block text-xs text-gray-600 mb-1">埋め込みモデル</label>
+                                    <input type="text" name="embedding_model" value="pyannote/embedding"
+                                           class="w-full border border-gray-300 rounded px-2 py-1">
+                                </div>
+                                <div>
+                                    <label class="block text-xs text-gray-600 mb-1">Whisper モデル</label>
+                                    <input type="text" name="mlx_model" value="mlx-community/whisper-large-v3-mlx"
+                                           class="w-full border border-gray-300 rounded px-2 py-1">
+                                </div>
+                                <div>
+                                    <label class="block text-xs text-gray-600 mb-1">Diarization モデル</label>
+                                    <input type="text" name="pyannote_model_id" value="pyannote/speaker-diarization-3.1"
+                                           class="w-full border border-gray-300 rounded px-2 py-1">
+                                </div>
+                                <div>
+                                    <label class="block text-xs text-gray-600 mb-1">
+                                        Hugging Face Token (.env の HF_TOKEN を上書き)
+                                    </label>
+                                    <input type="password" name="hf_token_override" value=""
+                                           class="w-full border border-gray-300 rounded px-2 py-1">
+                                </div>
+                            </div>
+                        </details>
+
+                        <button type="submit"
+                                class="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-4 rounded-lg shadow transition-all duration-200 transform hover:-translate-y-0.5 flex justify-center items-center">
+                            🚀 文字起こしを実行
+                        </button>
+                    </form>
+
+                    <div id="transcription-indicator"
+                         class="htmx-indicator mt-6 flex justify-center items-center space-x-2 text-purple-600">
+                        <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-current"></div>
+                        <span class="font-medium">処理中... 数分かかる場合があります</span>
+                    </div>
+
+                    <div id="transcription-result" class="mt-6"></div>
+                </div>
+            </div>
+
+            <!-- ============================================== -->
+            <!-- Step 2: マッチング -->
+            <!-- ============================================== -->
+            <div id="section-matching" class="bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-100">
+                <div class="bg-gradient-to-r from-blue-600 to-blue-500 px-6 py-4">
+                    <h2 class="text-xl font-bold text-white flex items-center">
+                        <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
+                        Step 2: マッチング（対応表作成）
+                    </h2>
+                </div>
+                <div class="p-6">
+                    <p class="text-sm text-gray-500 mb-5">
+                        台本（または手動で書き起こしたテキスト）と Step 1 の音声認識SRTから対応表CSVを生成します。
+                    </p>
+                    <form hx-post="/process/matching" hx-encoding="multipart/form-data"
+                          hx-target="#matching-result" hx-indicator="#matching-indicator">
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">台本or書き起こしテキストファイル</label>
+                            <input type="file" name="script_file" accept=".csv,.txt" required
+                                   class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 transition-colors">
+                            <p class="text-xs text-gray-400 mt-1">
+                                .csv は <code>id,scene_id,type,speaker,contents</code> 形式（type は dialogue / scene）。<br>
+                                .txt は各行を 1 セリフとして自動変換（<code>話者:本文</code> や <code>（ト書き）</code> も解釈）。
+                            </p>
+                        </div>
+
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">音声認識 SRT (Step 1 の出力)</label>
+                            <input type="hidden" name="job_id" id="step2-job-id" value="">
+                            <div id="step2-stt-status"
+                                 class="text-sm border border-dashed border-gray-300 rounded-lg px-3 py-2 bg-gray-50 text-gray-500">
+                                ⚠️ Step 1 を先に実行してください。完了すると自動でここに反映されます。
+                            </div>
+                        </div>
+
+                        <div class="mb-5">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">出力CSVファイル名</label>
+                            <input type="text" name="output_csv_name" value="対応表.csv"
+                                   class="block w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-400 focus:outline-none">
+                        </div>
+
+                        <button type="submit" id="matching-submit-btn" disabled
+                                class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg shadow transition-all duration-200 transform hover:-translate-y-0.5 flex justify-center items-center disabled:bg-gray-400 disabled:cursor-not-allowed disabled:transform-none">
+                            🔗 マッチング実行
+                        </button>
+                    </form>
+
+                    <div id="matching-indicator"
+                         class="htmx-indicator mt-6 flex justify-center items-center space-x-2 text-blue-600">
+                        <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-current"></div>
+                        <span class="font-medium">処理中... 時間がかかる場合があります</span>
+                    </div>
+
+                    <div id="matching-result" class="mt-6"></div>
+                </div>
+            </div>
+
+            <!-- ============================================== -->
+            <!-- Step 3: 字幕生成 -->
+            <!-- ============================================== -->
+            <div class="bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-100">
+                <div class="bg-gradient-to-r from-teal-500 to-green-500 px-6 py-4">
+                    <h2 class="text-xl font-bold text-white flex items-center">
+                        <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+                        Step 3: 字幕生成
+                    </h2>
+                </div>
+                <div class="p-6">
+                    <p class="text-sm text-gray-500 mb-5">
+                        編集済みの対応表CSVから、最終的なSRT字幕ファイルを生成します。
+                    </p>
+                    <form hx-post="/process/generation" hx-encoding="multipart/form-data"
+                          hx-target="#generation-result" hx-indicator="#generation-indicator">
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">編集済み 対応表CSV</label>
+                            <input type="file" name="edited_csv" accept=".csv" required
+                                   class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-teal-50 file:text-teal-700 hover:file:bg-teal-100 transition-colors">
+                        </div>
+
+                        <div class="mb-5">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">出力SRTファイル名</label>
+                            <input type="text" name="output_srt_name" value="subtitles.srt"
+                                   class="block w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-teal-400 focus:outline-none">
+                        </div>
+
+                        <button type="submit"
+                                class="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold py-3 px-4 rounded-lg shadow transition-all duration-200 transform hover:-translate-y-0.5 flex justify-center items-center">
+                            🎬 字幕を生成する
+                        </button>
+                    </form>
+
+                    <div id="generation-indicator"
+                         class="htmx-indicator mt-6 flex justify-center items-center space-x-2 text-teal-600">
+                        <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-current"></div>
+                        <span class="font-medium">生成中...</span>
+                    </div>
+
+                    <div id="generation-result" class="mt-6"></div>
+                </div>
+            </div>
+        </div>
+
+        <footer class="mt-12 text-center text-xs text-gray-400">
+            <p>処理はすべてローカルで行われます。大きな音声/動画ファイルは処理に数分かかる場合があります。</p>
+        </footer>
+    </div>
+
+</body>
+</html>

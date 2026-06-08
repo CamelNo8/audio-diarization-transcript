@@ -1,0 +1,27 @@
+<div class="space-y-2">
+    {% if databases %}
+        {% for db in databases %}
+        <div class="flex items-center justify-between bg-gray-50 border border-gray-200 rounded-lg p-3 hover:bg-purple-50 transition-colors">
+            <div>
+                <button type="button"
+                        hx-get="/api/databases/{{ db.name }}/speakers"
+                        hx-target="#db-detail"
+                        hx-swap="innerHTML"
+                        class="text-left">
+                    <span class="font-medium text-gray-900">{{ db.name }}</span>
+                    <span class="text-xs text-gray-500 ml-2">{{ db.speaker_count }} 話者</span>
+                </button>
+            </div>
+            <button type="button"
+                    hx-get="/api/databases/{{ db.name }}/speakers"
+                    hx-target="#db-detail"
+                    hx-swap="innerHTML"
+                    class="text-xs text-purple-600 hover:text-purple-700 underline">
+                開く →
+            </button>
+        </div>
+        {% endfor %}
+    {% else %}
+        <p class="text-sm text-gray-400 italic">DB がまだありません。下のフォームから作成してください。</p>
+    {% endif %}
+</div>

@@ -1,6 +1,7 @@
-話者照合 ＋ 文字起こし 統合スクリプト (Audio Diarization & Transcription)
+話者照合 ＋ 文字起こし ＋ 字幕生成 統合アプリ (Audio Diarization & Subtitle)
 
 このプロジェクトは、音声・動画ファイルから文字起こしを行い、さらに**「事前に登録した話者の声」と照合して「誰が話したか」を特定・CSV出力**するPythonスクリプトです。
+加えて、台本CSVと文字起こし結果をマッチングして **対応表CSV → 字幕SRT** を生成する機能を Streamlit Web UI で統合しています。
 
 Pyannoteによる話者分離（Diarization）と埋め込み抽出（Embedding）、およびApple Silicon（Mac）に最適化された mlx-whisper による高速な文字起こしを組み合わせています。
 
@@ -165,3 +166,40 @@ pyannote/speaker-diarization-3.1
 "00:00:01:000","00:00:05:000","UserA","こんにちは、本日の会議を始めます。","0.123456"
 "00:00:05:000","00:00:08:000","UserB","よろしくお願いします。","0.234567"
 "00:00:09:000","00:00:12:000","Unknown_1","（※登録外の人の発言）音声テストです。",""
+
+FastAPI + htmx Web UI（音声→対応表→字幕の統合）
+
+CLI に加えて、FastAPI + htmx による Web UI が利用できます。
+
+起動方法:
+
+uv run python app.py
+
+または:
+
+uv run uvicorn app:app --host 127.0.0.1 --port 8000
+
+起動後、ブラウザで http://127.0.0.1:8000 にアクセスしてください。
+
+UI は 3 セクション構成（横並びカード）:
+
+- **Step 1: 文字起こし & 話者分離** — 音声/動画 + 声紋登録ファイル群（任意）から文字起こし SRT を生成（本文は `[speaker] text` 形式）。内部的に `main.py` と同じ処理（`AudioProcessor`）を呼び出し、サイドカー CSV も `temp/` に保存します（Unknown ラベル付け用）。詳細設定 (`<details>`) でしきい値・話者数・モデル名・HF_TOKEN 上書きが可能。
+- **Step 2: マッチング（対応表作成）** — 台本 (`.csv`) または手動書き起こしテキスト (`.txt`) ＋ Step 1 の SRT から、SentenceTransformer + FAISS + WLIS による対応表 CSV を生成（`subtitle_matcher.py`）。`.txt` は `id,scene_id,type,speaker,contents` 形式の台本 CSV に自動変換されます（`話者:本文` / `（ト書き）` / `# 場面` の各形式に対応）。
+- **Step 3: 字幕生成** — 編集済み対応表 CSV から字幕 SRT を生成（`subtitle_exporter.py`）。
+
+Step 1 → Step 2 の連携は **完全ステートレス**（Streamlit 版のようなセッション保持はしません）。Step 1 で生成した SRT をダウンロードし、Step 2 で「音声認識 SRTファイル」にアップロードしてください。
+
+なお、文字起こしは **同期処理**（リクエスト中ブラウザは htmx インジケータで「処理中…」を表示）です。長尺音声で uvicorn 側のタイムアウトに当たる場合は、`--timeout-keep-alive` 等の調整を検討してください。
+
+アップロード・生成物は `temp/` 配下に保存されます（再起動しても残ります）。
+
+台本CSVの形式:
+
+type,speaker,contents
+dialogue,話者A,こんにちは、世界
+dialogue,話者B,お疲れ様です
+
+CLI コマンド版（個別実行）:
+
+uv run python subtitle_matcher.py 台本.csv 音声認識.srt 対応表.csv
+uv run python subtitle_exporter.py 対応表.csv 字幕.srt

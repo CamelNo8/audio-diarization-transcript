@@ -1,5 +1,19 @@
 import numpy as np
 import torch
+
+# PyTorch 2.6+ で torch.load のデフォルトが weights_only=True に変わり、
+# pyannote のチェックポイント (pytorch-lightning callback 等を pickle 含む) が
+# 読めなくなった対策。pyannote/lightning は torch.load を weights_only=True 付きで
+# 明示呼び出しするため、setdefault ではなく強制上書きする必要がある。
+# pyannote モデルは Hugging Face 由来で信頼可能なため安全。
+if not getattr(torch.load, "_pyannote_compat_patched", False):
+    _ORIGINAL_TORCH_LOAD = torch.load
+    def _torch_load_compat(*args, **kwargs):
+        kwargs["weights_only"] = False  # 強制上書き
+        return _ORIGINAL_TORCH_LOAD(*args, **kwargs)
+    _torch_load_compat._pyannote_compat_patched = True
+    torch.load = _torch_load_compat
+
 from pyannote.audio import Pipeline
 from pyannote.core import Segment
 from pyannote.audio.core.io import Audio
@@ -12,6 +26,7 @@ import csv
 import datetime
 import subprocess
 import tempfile
+import shutil
 import os
 
 from speaker_identification import SpeakerIdentifier
@@ -63,6 +78,9 @@ class AudioProcessor:
         hf_token: str,
         identifier: Optional[SpeakerIdentifier] = None,
         registry_dir: Optional[Path] = None,
+        interactive_unknown_resolve: bool = True,
+        denoise: bool = False,
+        separator_model: Optional[str] = None,
     ):
         self.audio_file = audio_file
         self.output_csv_path = output_csv_path
@@ -71,6 +89,9 @@ class AudioProcessor:
         self.hf_token = hf_token
         self.identifier = identifier
         self.registry_dir = registry_dir
+        self.interactive_unknown_resolve = interactive_unknown_resolve
+        self.denoise = denoise
+        self.separator_model = separator_model
 
         self.temp_wav_path: Optional[Path] = None
         self.speaker_mapping: Dict[str, str] = {}  # クラスターID -> 話者名
@@ -109,15 +130,39 @@ class AudioProcessor:
         pipeline = cls._PIPELINE_CACHE.get(cache_key)
         if pipeline is None:
             logging.info(f"Loading Pyannote pipeline ({model_id})...")  # [OPTIMIZED]
-            try:
-                pipeline = Pipeline.from_pretrained(
-                    model_id, use_auth_token=hf_token, local_files_only=True
-                )  # [OPTIMIZED]
-            except Exception:
-                pipeline = Pipeline.from_pretrained(model_id, use_auth_token=hf_token)  # [OPTIMIZED]
+            pipeline = cls._load_pipeline_with_auth(model_id, hf_token)
             cls._PIPELINE_CACHE[cache_key] = pipeline  # [OPTIMIZED]
         pipeline.to(device)
         return pipeline
+
+    @staticmethod
+    def _load_pipeline_with_auth(model_id: str, hf_token: str) -> Pipeline:
+        """新旧 huggingface_hub / pyannote-audio 両対応で Pipeline をロードする。
+
+        - token / use_auth_token どちらが受け入れられるか
+        - local_files_only オプションがサポートされるか
+        が pyannote のバージョンで変わるため、組み合わせを順次試行する。
+        """
+        last_error: Optional[Exception] = None
+        # 優先度順: 引数が新しい (token) / オフライン優先 → 引数が古い / オンライン
+        attempts = [
+            {"token": hf_token, "local_files_only": True},
+            {"token": hf_token},
+            {"use_auth_token": hf_token, "local_files_only": True},
+            {"use_auth_token": hf_token},
+        ]
+        for kwargs in attempts:
+            try:
+                return Pipeline.from_pretrained(model_id, **kwargs)
+            except TypeError as e:
+                # 引数自体が受け付けられない → 次の組み合わせへ
+                last_error = e
+                continue
+            except Exception as e:
+                # ネットワーク不通等 → 次の組み合わせへ
+                last_error = e
+                continue
+        raise RuntimeError(f"Pipeline.from_pretrained に失敗しました: {last_error}")
 
     def _set_speaker_metadata(
         self,
@@ -131,7 +176,10 @@ class AudioProcessor:
         self.speaker_candidate_distance_mapping[cluster_id] = candidate_distances
 
     def prepare_audio(self):
-        """ffmpegを使用して任意の音声/動画ファイルをWAV形式の一時ファイルに変換します。"""
+        """ffmpegを使用して任意の音声/動画ファイルをWAV形式の一時ファイルに変換します。
+
+        denoise=True の場合は変換後に Demucs でボーカルを抽出し、背景音/BGM を除去します。
+        """
         fd, temp_path_str = tempfile.mkstemp(suffix=".wav")
         os.close(fd)
         self.temp_wav_path = Path(temp_path_str)
@@ -151,6 +199,101 @@ class AudioProcessor:
         except subprocess.CalledProcessError as e:
             logging.critical(f"FFmpeg conversion failed: {e.stderr}")
             raise RuntimeError(f"FFmpeg conversion failed: {e.stderr}")
+
+        if self.denoise:
+            self._extract_vocals_inplace()
+
+    # audio-separator のデフォルト分離モデル
+    # （HuggingFace の karaokenerds/all-uvr-models から取得）
+    DEFAULT_SEPARATOR_MODEL = "Kim_Vocal_2.onnx"
+
+    def _extract_vocals_inplace(self) -> None:
+        """audio-separator (UVR / MDX / Roformer 系) でボーカルを抽出し、
+        self.temp_wav_path を抽出後のファイルに差し替える。
+
+        失敗した場合は元の WAV のまま処理を続行する（致命的エラーにはしない）。
+        モデルは HuggingFace 経由でダウンロードされるため、FB CDN が不通でも動作する。
+        """
+        assert self.temp_wav_path is not None
+        model_name = self.separator_model or self.DEFAULT_SEPARATOR_MODEL
+        logging.info(f"audio-separator で背景音を除去中（model={model_name}）...")
+
+        try:
+            from audio_separator.separator import Separator  # type: ignore
+        except ImportError:
+            logging.warning(
+                "audio-separator が見つかりません。`uv sync` で依存をインストールしてください。"
+                "元音声で処理を続行します。"
+            )
+            return
+
+        outdir = self.temp_wav_path.parent / f"sep_{self.temp_wav_path.stem}"
+        outdir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            separator = Separator(
+                output_dir=str(outdir),
+                log_level=logging.WARNING,
+            )
+            separator.load_model(model_filename=model_name)
+            output_files = separator.separate(str(self.temp_wav_path))
+        except Exception as e:
+            logging.warning(f"audio-separator 失敗。元音声で続行します。\n{e}")
+            shutil.rmtree(outdir, ignore_errors=True)
+            return
+
+        # output_files は ["...(Vocals)....wav", "...(Instrumental)....wav"] 形式
+        vocals_file = next(
+            (f for f in (output_files or []) if "vocal" in Path(f).name.lower()),
+            None,
+        )
+        if not vocals_file:
+            logging.warning(f"ボーカル抽出ファイルが見つかりません: {output_files}")
+            shutil.rmtree(outdir, ignore_errors=True)
+            return
+
+        vocals_path = Path(vocals_file)
+        if not vocals_path.is_absolute():
+            vocals_path = outdir / vocals_path.name
+        if not vocals_path.exists():
+            # 念のためフォールバック検索
+            cands = list(outdir.rglob("*[Vv]ocals*.wav"))
+            if not cands:
+                logging.warning(f"ボーカル WAV が見当たりません: {outdir}")
+                shutil.rmtree(outdir, ignore_errors=True)
+                return
+            vocals_path = cands[0]
+
+        # 16kHz mono へ再変換しつつ元 WAV を置換
+        fd2, replaced_str = tempfile.mkstemp(suffix=".wav")
+        os.close(fd2)
+        replaced_path = Path(replaced_str)
+        try:
+            subprocess.run(
+                [
+                    "ffmpeg", "-y", "-i", str(vocals_path),
+                    "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1",
+                    str(replaced_path),
+                ],
+                check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
+            )
+        except subprocess.CalledProcessError as e:
+            logging.warning(f"ボーカル出力の 16kHz 変換に失敗。元音声で続行します。\n{e.stderr}")
+            shutil.rmtree(outdir, ignore_errors=True)
+            try:
+                replaced_path.unlink()
+            except OSError:
+                pass
+            return
+
+        # 既存 temp_wav_path を置き換え
+        try:
+            self.temp_wav_path.unlink()
+        except OSError:
+            pass
+        self.temp_wav_path = replaced_path
+        shutil.rmtree(outdir, ignore_errors=True)
+        logging.info(f"ボーカル抽出済み: {self.temp_wav_path}")
 
     def process_and_save_to_csv(self, known_num_speakers: Optional[int] = None) -> bool:
         """全体のプロセス（前処理、話者分離・特定、文字起こし、マージ、CSV保存）を実行します。"""
@@ -250,13 +393,21 @@ class AudioProcessor:
                         None,
                     )
 
-            # 4. Unknown と判定されたクラスタを対話的に登録
-            if self.registry_dir is not None:
+            # 4. Unknown と判定されたクラスタを対話的に登録（CLI のみ）
+            if self.registry_dir is not None and self.interactive_unknown_resolve:
                 self._resolve_unknown_speakers_interactively()
         else:
-            # 識別器が設定されていない場合はクラスターIDをそのまま使用
-            for cluster_id in diarization.labels():
-                self._set_speaker_metadata(cluster_id, cluster_id, None, None)
+            # 識別器が設定されていない場合は全クラスタを Unknown_NN として扱う
+            # ラベル付け用に代表音声区間も記録しておく（identifier 分岐と同じロジック）
+            for i, cluster_id in enumerate(sorted(diarization.labels()), start=1):
+                segments = diarization.label_timeline(cluster_id)
+                valid_segments = [s for s in segments if s.duration >= 1.0]
+                if valid_segments:
+                    longest_segment = max(valid_segments, key=lambda s: s.duration)
+                else:
+                    longest_segment = max(segments, key=lambda s: s.duration)
+                self._cluster_segments[cluster_id] = longest_segment
+                self._set_speaker_metadata(cluster_id, f"Unknown_{i:02d}", None, None)
 
         # 4. 全文一括文字起こし (mlx-whisper)
         logging.info(f"Running mlx-whisper transcription ({self.mlx_model_id})...")
@@ -306,6 +457,7 @@ class AudioProcessor:
                         best_distance = self.speaker_distance_mapping.get(best_cluster)
                         candidate_distances = self.speaker_candidate_distance_mapping.get(best_cluster)
                     else:
+                        best_cluster = ""
                         best_speaker = "Unknown"
                         best_distance = None
                         candidate_distances = None
@@ -340,6 +492,72 @@ class AudioProcessor:
         except Exception as e:
             logging.error(f"Error saving to CSV: {e}")
             return False
+
+    # ------------------------------------------------------------------
+    # Unknown クラスタの永続化（Web UI 向け）
+    # ------------------------------------------------------------------
+
+    def persist_unknown_clusters(self, output_dir: Path) -> list:
+        """Unknown と判定されたクラスタの代表音声を output_dir に保存し、
+        メタ情報のリストを返す。Web UI で事後ラベル付けするために使用。
+
+        戻り値の各要素: {
+            "cluster_id": str,
+            "unknown_label": str,       # 例 "Unknown_01"
+            "distance": Optional[float],
+            "candidate_distances": Optional[Dict[str, float]],
+            "clip_filename": str,
+            "segment_start": float,
+            "segment_end": float,
+        }
+        """
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        if self.temp_wav_path is None or not self.temp_wav_path.exists():
+            logging.warning("一時 WAV が無いため Unknown クラスタを永続化できません。")
+            return []
+
+        result = []
+        for cluster_id, label in self.speaker_mapping.items():
+            if not label.startswith("Unknown_"):
+                continue
+            segment = self._cluster_segments.get(cluster_id)
+            if segment is None:
+                continue
+
+            clip_filename = f"clip_{cluster_id}.wav"
+            clip_path = output_dir / clip_filename
+            try:
+                subprocess.run(
+                    [
+                        "ffmpeg", "-nostdin", "-loglevel", "error",
+                        "-ss", f"{segment.start:.3f}",
+                        "-to", f"{segment.end:.3f}",
+                        "-i", str(self.temp_wav_path),
+                        "-vn", "-acodec", "pcm_s16le",
+                        "-ar", "16000", "-ac", "1", "-y",
+                        str(clip_path),
+                    ],
+                    check=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+            except subprocess.CalledProcessError as e:
+                logging.warning(f"クラスタ {cluster_id} の音声切り出し失敗: {e.stderr}")
+                continue
+
+            result.append({
+                "cluster_id": cluster_id,
+                "unknown_label": label,
+                "distance": self.speaker_distance_mapping.get(cluster_id),
+                "candidate_distances": self.speaker_candidate_distance_mapping.get(cluster_id),
+                "clip_filename": clip_filename,
+                "segment_start": float(segment.start),
+                "segment_end": float(segment.end),
+            })
+        return result
 
     # ------------------------------------------------------------------
     # Unknown 話者の対話的登録

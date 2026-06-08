@@ -1,5 +1,16 @@
 import numpy as np
 import torch
+
+# PyTorch 2.6+ の weights_only=True デフォルト化対策。
+# pyannote/lightning は明示的に weights_only=True を渡してくるため強制上書き。
+if not getattr(torch.load, "_pyannote_compat_patched", False):
+    _ORIGINAL_TORCH_LOAD = torch.load
+    def _torch_load_compat(*args, **kwargs):
+        kwargs["weights_only"] = False
+        return _ORIGINAL_TORCH_LOAD(*args, **kwargs)
+    _torch_load_compat._pyannote_compat_patched = True
+    torch.load = _torch_load_compat
+
 from pyannote.audio import Inference, Model
 from scipy.spatial.distance import cdist
 from pathlib import Path
@@ -30,9 +41,9 @@ class SpeakerIdentifier:
                 "環境変数 HF_TOKEN か --hf_token で指定してください。"
             )
         try:
-            model = Model.from_pretrained(model_name, use_auth_token=hf_token)
-        except TypeError:
             model = Model.from_pretrained(model_name, token=hf_token)
+        except TypeError:
+            model = Model.from_pretrained(model_name, use_auth_token=hf_token)
         
         return Inference(model, window="whole")
 
@@ -137,6 +148,19 @@ class SpeakerIdentifier:
         """Pyannoteから直接切り出した波形データから特徴量を抽出する"""
         embedding = self.inference({"waveform": waveform, "sample_rate": sample_rate})
         return self._normalize_embedding(embedding)
+
+    def identify_from_audio_path(
+        self, audio_path: Path
+    ) -> Tuple[str, Optional[float], Optional[Dict[str, float]]]:
+        """音声ファイルのパスから直接話者を照合する（Web の事後ラベル付け向け）。
+
+        登録話者がいない場合は Unknown 名と None を返す。
+        """
+        if not Path(audio_path).exists():
+            raise FileNotFoundError(f"音声ファイルが見つかりません: {audio_path}")
+        embedding = self.inference(str(audio_path))
+        normalized = self._normalize_embedding(embedding)
+        return self.identify_speaker_with_distances(normalized)
 
     def _normalize_embedding(self, embedding) -> np.ndarray:
         """埋め込みベクトルを正規化（L2ノルムで除算）する"""

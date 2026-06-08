@@ -1,0 +1,134 @@
+{% set unresolved = job.clusters | rejectattr('resolved') | list %}
+{% set resolved = job.clusters | selectattr('resolved') | list %}
+
+{% if last_message %}
+<div class="mb-4 p-3 bg-green-50 border-l-4 border-green-500 rounded-r text-sm text-green-800">
+    {{ last_message }}
+</div>
+{% endif %}
+
+{# 全ラベル付けで共通の DB セレクタ #}
+<div class="mb-6 p-4 bg-purple-50 border border-purple-200 rounded-lg">
+    <label class="block text-sm font-medium text-gray-700 mb-2">📁 保存先データベース</label>
+    <select id="label-db-select" class="w-full text-sm border border-gray-300 rounded px-2 py-1">
+        {% for db in databases %}
+        <option value="{{ db.name }}" {% if db.name == job.db_name %}selected{% endif %}>
+            {{ db.name }} ({{ db.speaker_count }} 話者)
+        </option>
+        {% endfor %}
+    </select>
+    <p class="text-xs text-gray-500 mt-1">
+        ラベル付けした音声は <strong>このDB</strong> に <code>{名前}.wav</code> として保存され、
+        残りの Unknown も同じDBで自動再照合されます。
+    </p>
+    {% if not databases %}
+    <p class="text-xs text-red-600 mt-2">
+        DB がありません。<a href="/databases" target="_blank" class="underline">管理画面</a>で作成してください。
+    </p>
+    {% endif %}
+</div>
+
+{# 未解決クラスタ #}
+<h3 class="text-lg font-semibold text-gray-800 mb-3">
+    未ラベル ({{ unresolved | length }} / {{ job.clusters | length }})
+</h3>
+{% if unresolved %}
+<div class="space-y-4">
+    {% for c in unresolved %}
+    <div class="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+        <div class="flex items-start justify-between mb-2">
+            <div>
+                <p class="font-mono text-sm text-gray-700">{{ c.unknown_label }}
+                    <span class="text-xs text-gray-400">(cluster {{ c.cluster_id }})</span>
+                </p>
+                <p class="text-xs text-gray-500">
+                    区間: {{ "%.2f"|format(c.segment_start) }}s – {{ "%.2f"|format(c.segment_end) }}s
+                    {% if c.distance %}
+                    · 最近傍距離: {{ "%.4f"|format(c.distance) }}
+                    {% endif %}
+                </p>
+            </div>
+        </div>
+
+        <audio controls preload="none" src="/unknowns/{{ job.job_id }}/clip/{{ c.cluster_id }}"
+               class="w-full h-9 mb-3"></audio>
+
+        {% if c.candidate_distances %}
+        <details class="mb-2">
+            <summary class="text-xs text-gray-500 cursor-pointer select-none">候補話者の距離</summary>
+            <ul class="mt-1 ml-4 text-xs text-gray-600 list-disc">
+                {% for name, dist in c.candidate_distances.items() | sort(attribute=1) %}
+                <li>{{ name }}: {{ "%.4f"|format(dist) }}</li>
+                {% endfor %}
+            </ul>
+        </details>
+        {% endif %}
+
+        <form hx-post="/unknowns/{{ job.job_id }}/label/{{ c.cluster_id }}"
+              hx-target="#unknowns-list"
+              hx-swap="innerHTML"
+              hx-include="#label-db-select"
+              class="flex gap-2 mt-2">
+            <input type="text" name="speaker_name" placeholder="話者名（例: 三上）"
+                   required
+                   class="flex-1 text-sm border border-gray-300 rounded px-2 py-1 focus:ring-2 focus:ring-purple-400 focus:outline-none">
+            <input type="hidden" name="db_name" value="">
+            <button type="submit"
+                    class="text-sm bg-purple-600 hover:bg-purple-700 text-white font-medium py-1 px-3 rounded whitespace-nowrap">
+                ラベル付け
+            </button>
+        </form>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<p class="text-sm text-gray-500 italic bg-gray-50 border border-gray-200 rounded p-4">
+    ✓ すべてのクラスタがラベル付けされました。下から更新済みCSVをダウンロードしてください。
+</p>
+{% endif %}
+
+{# 解決済みクラスタ #}
+{% if resolved %}
+<h3 class="text-lg font-semibold text-gray-800 mt-8 mb-3">
+    ラベル付け済み ({{ resolved | length }})
+</h3>
+<ul class="divide-y divide-gray-100 bg-white border border-gray-200 rounded-lg">
+    {% for c in resolved %}
+    <li class="p-3 flex items-center justify-between text-sm">
+        <div>
+            <span class="font-mono text-gray-500">{{ c.unknown_label }}</span>
+            <span class="mx-2">→</span>
+            <span class="font-semibold text-gray-900">{{ c.resolved_name }}</span>
+            <span class="ml-2 text-xs px-2 py-0.5 rounded-full
+                {% if c.resolved_method == 'manual' %}bg-purple-100 text-purple-700{% else %}bg-blue-100 text-blue-700{% endif %}">
+                {{ '手動' if c.resolved_method == 'manual' else '自動再照合' }}
+            </span>
+            {% if c.distance %}
+            <span class="ml-2 text-xs text-gray-400">距離 {{ "%.4f"|format(c.distance) }}</span>
+            {% endif %}
+        </div>
+        <audio controls preload="none" src="/unknowns/{{ job.job_id }}/clip/{{ c.cluster_id }}"
+               class="h-8" style="max-width:220px"></audio>
+    </li>
+    {% endfor %}
+</ul>
+{% endif %}
+
+<div class="mt-8 pt-6 border-t border-gray-200 flex items-center justify-between">
+    <a href="/download/{{ job.csv_filename }}"
+       class="inline-block bg-purple-600 hover:bg-purple-700 text-white font-medium py-2 px-4 rounded">
+        💾 更新済み文字起こしCSVをダウンロード
+    </a>
+    <span class="text-xs text-gray-400">ジョブID: {{ job.job_id }}</span>
+</div>
+
+<script>
+    // フォーム送信前に DB セレクタの値を hidden の db_name にコピー
+    document.body.addEventListener('htmx:configRequest', (e) => {
+        const path = e.detail.path || '';
+        if (path.startsWith('/unknowns/') && path.includes('/label/')) {
+            const sel = document.getElementById('label-db-select');
+            if (sel) e.detail.parameters['db_name'] = sel.value;
+        }
+    });
+</script>

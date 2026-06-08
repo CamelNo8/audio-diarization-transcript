@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>声紋データベース管理</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>body { font-family: 'Inter', sans-serif; }</style>
+</head>
+<body class="bg-gray-50 text-gray-800 min-h-screen">
+
+    <div class="max-w-6xl mx-auto px-6 py-12">
+        <header class="mb-8">
+            <div class="flex items-center justify-between">
+                <h1 class="text-3xl font-bold text-gray-900 tracking-tight">🗂️ 声紋データベース管理</h1>
+                <a href="/" class="text-sm text-purple-600 hover:text-purple-700 underline">
+                    ← トップに戻る
+                </a>
+            </div>
+            <p class="mt-2 text-sm text-gray-500">
+                ルートディレクトリ: <code class="bg-gray-200 px-2 py-0.5 rounded">{{ root }}</code>
+            </p>
+        </header>
+
+        <div class="grid md:grid-cols-2 gap-8">
+            <div class="bg-white rounded-2xl shadow-xl border border-gray-100 p-6">
+                <h2 class="text-lg font-bold text-gray-900 mb-4">データベース一覧</h2>
+
+                <div id="db-list">
+                    {% include "partials/db_list.html" %}
+                </div>
+
+                <div class="mt-6 pt-5 border-t border-gray-100">
+                    <h3 class="text-sm font-medium text-gray-700 mb-2">新規DBを作成</h3>
+                    <form hx-post="/api/databases"
+                          hx-target="#db-list"
+                          hx-swap="innerHTML"
+                          hx-on::after-request="if(event.detail.successful){this.reset(); htmx.trigger('body', 'db-changed');}"
+                          class="flex gap-2">
+                        <input type="text" name="name" placeholder="例: 転スラ"
+                               required
+                               class="flex-1 text-sm border border-gray-300 rounded px-3 py-2 focus:ring-2 focus:ring-purple-400 focus:outline-none">
+                        <button type="submit"
+                                class="text-sm bg-purple-600 hover:bg-purple-700 text-white font-medium py-2 px-4 rounded">
+                            作成
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <div id="db-detail">
+                <div class="bg-white rounded-2xl shadow-xl border border-gray-100 p-6 text-center text-gray-400 italic">
+                    左のリストからDBを選択してください。
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 他タブ（Step 1 画面など）にDB変更を通知
+        const _vdbChannel = ('BroadcastChannel' in window) ? new BroadcastChannel('voice-databases') : null;
+        function notifyDbChanged() {
+            if (_vdbChannel) _vdbChannel.postMessage({ type: 'changed', at: Date.now() });
+        }
+        document.body.addEventListener('htmx:afterRequest', (e) => {
+            if (!e.detail.successful) return;
+            const path = (e.detail.requestConfig && e.detail.requestConfig.path) || '';
+            const verb = ((e.detail.requestConfig && e.detail.requestConfig.verb) || '').toUpperCase();
+            // DB作成/削除、話者追加/削除のいずれかで通知
+            if (verb === 'POST' && path === '/api/databases') notifyDbChanged();
+            else if (path.startsWith('/api/databases/') && path.includes('/speakers')) notifyDbChanged();
+        });
+    </script>
+</body>
+</html>
