@@ -98,6 +98,13 @@ def load_stt_from_srt(filename: str) -> List[Dict[str, Any]]:
                     start_str, end_str = [t.strip() for t in lines[1].split('-->')]
                     text = " ".join(lines[2:])
 
+                    # 先頭の [話者名] を分離する（SRT生成時に "[speaker] 本文" の形で埋め込まれている）
+                    speaker = ""
+                    speaker_match = re.match(r"^\s*\[([^\]]*)\]\s*(.*)$", text)
+                    if speaker_match:
+                        speaker = speaker_match.group(1).strip()
+                        text = speaker_match.group(2)
+
                     # 時刻の妥当性チェック（end <= start は Whisper の幻覚由来でよくある）
                     start_sec = time_str_to_seconds(start_str)
                     end_sec = time_str_to_seconds(end_str)
@@ -114,7 +121,8 @@ def load_stt_from_srt(filename: str) -> List[Dict[str, Any]]:
                         "id": stt_id,
                         "start": start_str,
                         "end": end_str,
-                        "text": text
+                        "text": text,
+                        "stt_speaker": speaker
                     })
                     stt_id += 1
         print(
@@ -372,6 +380,9 @@ def export_results_to_csv(scripts: List, stt: List, matched_pairs: List, matched
         # script_speakerとspeakerの設定
         script_speaker = script_ng.get('speaker', '')
 
+        # stt_speaker は元のSTTセグメント（先頭）から取得する
+        stt_speaker = stt[stt_ng['original_ids'][0]].get('stt_speaker', '')
+
         timed_data.append({
             "type": "Matched",
             "script_start_id": script_start_id,
@@ -381,9 +392,11 @@ def export_results_to_csv(scripts: List, stt: List, matched_pairs: List, matched
             "stt_start_id": stt_start_id, # ★ 変更
             "stt_end_id": stt_end_id,     # ★ 変更
             "stt_text": stt_ng['text'],
+            "stt_speaker": stt_speaker,
             "start_time": start_time,
             "end_time": stt[stt_ng['original_ids'][-1]]['end'],
-            "speaker": script_speaker,
+            # 台本に話者がない場合のみ音声認識の話者で補う
+            "speaker": script_speaker if script_speaker else stt_speaker,
             "subtitle_text": script_ng['text'],
             "sort_key": time_str_to_seconds(start_time)
         })
@@ -391,6 +404,7 @@ def export_results_to_csv(scripts: List, stt: List, matched_pairs: List, matched
     # Unmatched_STTデータを作成
     for s in stt:
         if s["id"] not in matched_stt_indices:
+            stt_speaker = s.get('stt_speaker', '')
             timed_data.append({
                 "type": "Unmatched_STT",
                 "script_start_id": "",
@@ -400,9 +414,11 @@ def export_results_to_csv(scripts: List, stt: List, matched_pairs: List, matched
                 "stt_start_id": s['id'], # ★ 変更
                 "stt_end_id": s['id'],   # ★ 変更
                 "stt_text": s['text'],
+                "stt_speaker": stt_speaker,
                 "start_time": s['start'],
                 "end_time": s['end'],
-                "speaker": "",
+                # 台本がないため subtitle_text は音声認識を使用 → speaker も音声認識の話者を使う
+                "speaker": stt_speaker,
                 "subtitle_text": s['text'],
                 "sort_key": time_str_to_seconds(s['start'])
             })
@@ -425,6 +441,7 @@ def export_results_to_csv(scripts: List, stt: List, matched_pairs: List, matched
                 "stt_start_id": "", # ★ 変更
                 "stt_end_id": "",   # ★ 変更
                 "stt_text": "",
+                "stt_speaker": "",
                 "start_time": "", # この後補完する
                 "end_time": "",   # この後補完する
                 "speaker": script_speaker,
@@ -533,7 +550,7 @@ def export_results_to_csv(scripts: List, stt: List, matched_pairs: List, matched
             header = [
                 'type',
                 'script_start_id', 'script_end_id', 'script_speaker', 'script_dialogue',
-                'stt_start_id', 'stt_end_id', 'stt_text',
+                'stt_start_id', 'stt_end_id', 'stt_speaker', 'stt_text',
                 'start_time', 'end_time', 'speaker', 'subtitle_text'
             ]
             writer = csv.DictWriter(csvfile, fieldnames=header)

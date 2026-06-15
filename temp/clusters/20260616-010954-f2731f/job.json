@@ -1,0 +1,29 @@
+{
+  "job_id": "20260616-010954-f2731f",
+  "csv_path": "/Users/hiyori/dev/audio-diarization-transcript/temp/transcription.csv",
+  "srt_path": "/Users/hiyori/dev/audio-diarization-transcript/temp/transcription.srt",
+  "srt_filename": "transcription.srt",
+  "db_name": "オードリー",
+  "threshold": 0.5,
+  "embedding_model": "pyannote/embedding",
+  "clusters": [
+    {
+      "cluster_id": "SPEAKER_00",
+      "unknown_label": "Unknown_01",
+      "distance": 0.9646396799442256,
+      "candidate_distances": {
+        "春日": 0.9646396799442256,
+        "笹川": 1.0210579430962101,
+        "細貝": 1.0308572082880059,
+        "若林": 0.9699029541201958
+      },
+      "clip_filename": "clip_SPEAKER_00.wav",
+      "segment_start": 184.91346875000002,
+      "segment_end": 190.97159375,
+      "resolved": true,
+      "resolved_name": "謎の声",
+      "resolved_method": "manual"
+    }
+  ],
+  "created_at": "2026-06-16T01:15:27"
+}
