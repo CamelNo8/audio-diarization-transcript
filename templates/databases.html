@@ -106,6 +106,34 @@
         </div>
     </div>
 
+    {# 話者名変更モーダル #}
+    <div id="db-rename-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+        <div class="bg-white rounded-2xl shadow-2xl border border-gray-100 w-full max-w-md p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-bold text-gray-900">✏ 話者名の変更</h3>
+                <button type="button" onclick="closeDbRename()"
+                        class="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+            </div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">新しい話者名</label>
+            <input type="text" id="db-rename-input"
+                   onkeydown="if(event.key==='Enter'){event.preventDefault();submitDbRename();}"
+                   class="w-full text-sm border border-gray-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-400 focus:outline-none">
+            <p class="text-[11px] text-gray-400 mt-1">
+                拡張子は変わりません。使用不可文字（ <code>/ \ : * ? " &lt; &gt; |</code> ）は使えません。
+            </p>
+            <div class="mt-5 flex justify-end gap-2">
+                <button type="button" onclick="closeDbRename()"
+                        class="text-sm bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-2 px-4 rounded">
+                    キャンセル
+                </button>
+                <button type="button" id="db-rename-save" onclick="submitDbRename()"
+                        class="text-sm bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded">
+                    変更を保存
+                </button>
+            </div>
+        </div>
+    </div>
+
     {% include "partials/crop_editor_script.html" %}
 
     <script>
@@ -160,6 +188,48 @@
             }
         }
 
+        // ===== 話者名変更モーダル制御 =====
+        let _dbRenameTarget = { db: null, file: null };
+
+        function openDbRename(db, file, speakerName) {
+            _dbRenameTarget = { db, file };
+            const input = document.getElementById('db-rename-input');
+            input.value = speakerName;
+            document.getElementById('db-rename-modal').classList.remove('hidden');
+            setTimeout(() => { input.focus(); input.select(); }, 0);
+        }
+
+        function closeDbRename() {
+            document.getElementById('db-rename-modal').classList.add('hidden');
+            _dbRenameTarget = { db: null, file: null };
+        }
+
+        async function submitDbRename() {
+            const { db, file } = _dbRenameTarget;
+            if (!db || !file) return;
+            const newName = document.getElementById('db-rename-input').value.trim();
+            if (!newName) return;
+            const saveBtn = document.getElementById('db-rename-save');
+            const fd = new FormData();
+            fd.append('new_name', newName);
+            const url = '/api/databases/' + encodeURIComponent(db)
+                      + '/speakers/' + encodeURIComponent(file) + '/rename';
+            saveBtn.disabled = true;
+            saveBtn.textContent = '処理中…';
+            try {
+                const res = await fetch(url, { method: 'POST', body: fd });
+                const html = await res.text();
+                const detail = document.getElementById('db-detail');
+                detail.innerHTML = html;
+                if (window.htmx) htmx.process(detail);
+                notifyDbChanged();
+                closeDbRename();
+            } finally {
+                saveBtn.disabled = false;
+                saveBtn.textContent = '変更を保存';
+            }
+        }
+
         // 他タブ（Step 1 画面など）にDB変更を通知
         const _vdbChannel = ('BroadcastChannel' in window) ? new BroadcastChannel('voice-databases') : null;
         function notifyDbChanged() {
@@ -171,6 +241,7 @@
             const verb = ((e.detail.requestConfig && e.detail.requestConfig.verb) || '').toUpperCase();
             // DB作成/削除、話者追加/削除のいずれかで通知
             if (verb === 'POST' && path === '/api/databases') notifyDbChanged();
+            else if (verb === 'DELETE' && path.startsWith('/api/databases/') && !path.includes('/speakers')) notifyDbChanged();
             else if (path.startsWith('/api/databases/') && path.includes('/speakers')) notifyDbChanged();
         });
     </script>

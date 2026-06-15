@@ -12,13 +12,23 @@
                     <span class="text-xs text-gray-500 ml-2">{{ db.speaker_count }} 話者</span>
                 </button>
             </div>
-            <button type="button"
-                    hx-get="/api/databases/{{ db.name }}/speakers"
-                    hx-target="#db-detail"
-                    hx-swap="innerHTML"
-                    class="text-xs text-purple-600 hover:text-purple-700 underline">
-                開く →
-            </button>
+            <div class="flex items-center gap-3 whitespace-nowrap">
+                <button type="button"
+                        hx-get="/api/databases/{{ db.name }}/speakers"
+                        hx-target="#db-detail"
+                        hx-swap="innerHTML"
+                        class="text-xs text-purple-600 hover:text-purple-700 underline">
+                    開く →
+                </button>
+                <button type="button"
+                        hx-delete="/api/databases/{{ db.name }}"
+                        hx-target="#db-list"
+                        hx-swap="innerHTML"
+                        hx-confirm="DB「{{ db.name }}」を削除しますか？中の話者（{{ db.speaker_count }}名）も全て削除されます。"
+                        class="text-xs text-red-600 hover:text-red-800 underline">
+                    削除
+                </button>
+            </div>
         </div>
         {% endfor %}
     {% else %}

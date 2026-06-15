@@ -617,6 +617,15 @@ async def api_create_database(request: Request, name: str = Form(...)):
     return await _render_db_list_fragment(request)
 
 
+@app.delete("/api/databases/{name}", response_class=HTMLResponse)
+async def api_delete_database(request: Request, name: str):
+    try:
+        vdb.delete_database(name)
+    except (ValueError, FileNotFoundError) as e:
+        return _render_error(request, str(e))
+    return await _render_db_list_fragment(request)
+
+
 @app.get("/api/databases/{name}/speakers", response_class=HTMLResponse)
 async def api_list_speakers(request: Request, name: str):
     try:
@@ -675,6 +684,26 @@ async def api_upload_speakers(
 async def api_delete_speaker(request: Request, name: str, filename: str):
     try:
         vdb.delete_speaker(name, filename)
+    except (ValueError, FileNotFoundError) as e:
+        return _render_error(request, str(e))
+    speakers = vdb.list_speakers(name)
+    return templates.TemplateResponse(
+        request,
+        "partials/db_speakers.html",
+        {"db_name": name, "speakers": speakers},
+    )
+
+
+@app.post("/api/databases/{name}/speakers/{filename}/rename", response_class=HTMLResponse)
+async def api_rename_speaker(
+    request: Request,
+    name: str,
+    filename: str,
+    new_name: str = Form(...),
+):
+    """話者ラベル（ファイル名の拡張子なし部分）を変更する。"""
+    try:
+        vdb.rename_speaker(name, filename, new_name)
     except (ValueError, FileNotFoundError) as e:
         return _render_error(request, str(e))
     speakers = vdb.list_speakers(name)

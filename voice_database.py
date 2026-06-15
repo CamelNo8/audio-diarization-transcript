@@ -79,6 +79,12 @@ def create_database(name: str) -> Path:
     return path
 
 
+def delete_database(name: str) -> None:
+    """DB（ディレクトリ）を中の話者ファイルごと削除する。"""
+    path = database_dir(name)
+    shutil.rmtree(path)
+
+
 def list_speakers(db_name: str) -> List[Dict]:
     """DB 内の話者ファイル一覧を返す。"""
     path = database_dir(db_name)
@@ -113,6 +119,24 @@ def delete_speaker(db_name: str, filename: str) -> None:
     """DB 内の話者ファイルを削除する。"""
     path = speaker_path(db_name, filename)
     path.unlink()
+
+
+def rename_speaker(db_name: str, filename: str, new_speaker_name: str) -> Path:
+    """話者ファイルをリネームして話者名（=ファイル名の拡張子なし部分）を変更する。
+
+    元の拡張子は維持する。リネーム先が既存の場合は ValueError（上書き防止）。
+    """
+    src = speaker_path(db_name, filename)
+    safe_name = sanitize_name(new_speaker_name)
+    if safe_name is None:
+        raise ValueError(f"無効な話者名: {new_speaker_name!r}")
+    dst = src.with_name(safe_name + src.suffix)
+    if dst == src:
+        return src
+    if dst.exists():
+        raise ValueError(f"同名の話者が既に存在します: {dst.name}")
+    src.rename(dst)
+    return dst
 
 
 def add_speaker_file(db_name: str, src_path: Path, dest_filename: Optional[str] = None) -> Path:
