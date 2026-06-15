@@ -136,7 +136,14 @@ def parse_args() -> argparse.Namespace:
         "--mlx_model",
         type=str,
         default="mlx-community/whisper-large-v3-mlx",
-        help="mlx-whisper のモデルID",
+        help="Whisper モデルID/品質（例: large-v3, medium, small。エンジンに合わせ自動変換）",
+    )
+    parser.add_argument(
+        "--whisper_backend",
+        type=str,
+        choices=["auto", "mlx", "faster"],
+        default="auto",
+        help="文字起こしエンジン。auto=OS判定 / mlx=mlx-whisper / faster=faster-whisper",
     )
     parser.add_argument(
         "--pyannote_model_id",
@@ -213,6 +220,7 @@ def main() -> int:
             hf_token=args.hf_token,
             identifier=identifier,
             registry_dir=args.registry_dir,
+            whisper_backend=args.whisper_backend,
         ) as processor:
             
             success = processor.process_and_save_to_csv(known_num_speakers=args.num_speakers)

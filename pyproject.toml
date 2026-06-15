@@ -18,7 +18,11 @@ dependencies = [
     "pyannote-audio>=3.3.0,<4.0",
     "omegaconf>=2.3.0",  # pyannote 4.x で依存から外れたためのセーフティ
     "scipy>=1.10.0",
-    "mlx-whisper>=0.2.0",  # Mac (Apple Silicon) 向けのWhisper実装
+    # Whisper 実装はプラットフォームで切り替える（transcription_backend.py）
+    #   Mac (Apple Silicon) … mlx-whisper（Metal 最適化）
+    #   Windows / Linux      … faster-whisper（CUDA 対応・CPU フォールバック）
+    "mlx-whisper>=0.2.0 ; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "faster-whisper>=1.0.0",
     "python-dotenv>=1.0.0",
     "numpy>=1.24.0",
     # pyannote / mlx-whisper の互換性のためメジャー上限を制約
@@ -34,8 +38,13 @@ dependencies = [
     "jinja2>=3.1.0",
     "python-multipart>=0.0.6",
     # 背景音 / BGM 除去（ボーカル抽出）用。HuggingFace 経由でモデルを取得するため
-    # FB CDN への接続不可な環境でも動く
-    "audio-separator[cpu]>=0.21.0",
+    # FB CDN への接続不可な環境でも動く。
+    # GPU は audio-separator が自動検出する（setup_torch_device）:
+    #   Mac (Apple Silicon) … plain onnxruntime の CoreML + torch MPS（Metal）を自動使用
+    #   Windows / Linux      … onnxruntime-gpu の CUDAExecutionProvider + torch CUDA を自動使用
+    # そのため onnxruntime のディストリビューションのみプラットフォームで切り替える。
+    "audio-separator[gpu]>=0.21.0 ; sys_platform != 'darwin'",
+    "audio-separator[cpu]>=0.21.0 ; sys_platform == 'darwin'",
 ]
 
 [project.scripts]

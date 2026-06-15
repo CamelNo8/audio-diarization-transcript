@@ -187,6 +187,9 @@ def _load_job(job_id: str) -> Optional[Dict[str, Any]]:
         return None
     with open(path, encoding="utf-8") as f:
         job = json.load(f)
+    # 旧フォーマットのジョブには csv_filename が無いため csv_path から補完する
+    if not job.get("csv_filename") and job.get("csv_path"):
+        job["csv_filename"] = Path(job["csv_path"]).name
     _JOBS[job_id] = job
     return job
 
@@ -297,11 +300,22 @@ async def process_transcription(
     num_speakers: str = Form(""),
     embedding_model: str = Form("pyannote/embedding"),
     mlx_model: str = Form("mlx-community/whisper-large-v3-mlx"),
+    whisper_backend: str = Form("auto"),  # "auto" / "mlx" / "faster"
+    whisper_quality: str = Form(""),  # "large-v3" / "medium" / "small" / "__custom__"
+    whisper_custom_model: str = Form(""),
     pyannote_model_id: str = Form("pyannote/speaker-diarization-3.1"),
     hf_token_override: str = Form(""),
     denoise_mode: str = Form("off"),
 ):
     try:
+        # Whisper モデルの決定。品質ドロップダウン優先、カスタム時は自由入力、
+        # どちらも無い場合は後方互換で旧 mlx_model フィールドを使う。
+        if whisper_quality == "__custom__":
+            whisper_model = whisper_custom_model.strip() or mlx_model
+        elif whisper_quality:
+            whisper_model = whisper_quality
+        else:
+            whisper_model = mlx_model
         if not shutil.which("ffmpeg"):
             return _render_error(request, "ffmpeg が PATH に見つかりません。`brew install ffmpeg` でインストールしてください。")
 
@@ -407,7 +421,7 @@ async def process_transcription(
             with AudioProcessor(
                 audio_file=audio_path,
                 output_csv_path=output_csv_path,
-                mlx_model_id=mlx_model,
+                mlx_model_id=whisper_model,
                 pyannote_model_id=pyannote_model_id,
                 hf_token=hf_token,
                 identifier=identifier,
@@ -415,6 +429,7 @@ async def process_transcription(
                 interactive_unknown_resolve=False,
                 denoise=separator_model is not None,
                 separator_model=separator_model,
+                whisper_backend=whisper_backend,
             ) as processor:
                 success = processor.process_and_save_to_csv(known_num_speakers=num_speakers_val)
                 # Unknown クラスタの音声を永続化（成功時のみ）
@@ -440,6 +455,7 @@ async def process_transcription(
         job = {
             "job_id": job_id,
             "csv_path": str(output_csv_path),
+            "csv_filename": output_csv_path.name,
             "srt_path": str(output_srt_path),
             "srt_filename": output_srt_name,
             "db_name": registry_dir.name if registry_dir is not None else None,

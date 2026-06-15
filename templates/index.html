@@ -144,6 +144,15 @@
                             }
                             // ウィンドウフォーカス復帰時にも更新（管理タブから戻ってきた時の保険）
                             window.addEventListener('focus', refreshDbSelect);
+
+                            // Whisper モデル品質が「カスタム」の時だけ自由入力欄を表示
+                            function toggleWhisperCustom() {
+                                const sel = document.getElementById('whisper-quality-select');
+                                const wrap = document.getElementById('whisper-custom-wrap');
+                                if (!sel || !wrap) return;
+                                wrap.classList.toggle('hidden', sel.value !== '__custom__');
+                            }
+                            toggleWhisperCustom();
                         </script>
 
                         <div class="mb-4 border border-purple-100 rounded-lg p-3 bg-purple-50/40">
@@ -200,9 +209,36 @@
                                            class="w-full border border-gray-300 rounded px-2 py-1">
                                 </div>
                                 <div>
-                                    <label class="block text-xs text-gray-600 mb-1">Whisper モデル</label>
-                                    <input type="text" name="mlx_model" value="mlx-community/whisper-large-v3-mlx"
+                                    <label class="block text-xs text-gray-600 mb-1">文字起こしエンジン</label>
+                                    <select name="whisper_backend"
+                                            class="w-full border border-gray-300 rounded px-2 py-1">
+                                        <option value="auto" selected>自動（OSで判定）</option>
+                                        <option value="mlx">Mac: mlx-whisper（Metal）</option>
+                                        <option value="faster">Windows/Linux: faster-whisper（CUDA）</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-xs text-gray-600 mb-1">Whisper モデル品質</label>
+                                    <select name="whisper_quality" id="whisper-quality-select"
+                                            onchange="toggleWhisperCustom()"
+                                            class="w-full border border-gray-300 rounded px-2 py-1">
+                                        <option value="large-v3" selected>高精度（large-v3）</option>
+                                        <option value="medium">標準（medium）</option>
+                                        <option value="small">高速（small）</option>
+                                        <option value="__custom__">カスタム（モデルIDを直接入力）</option>
+                                    </select>
+                                </div>
+                                <div id="whisper-custom-wrap" class="hidden">
+                                    <label class="block text-xs text-gray-600 mb-1">
+                                        カスタム モデルID（上級者向け）
+                                    </label>
+                                    <input type="text" name="whisper_custom_model" id="whisper-custom-model"
+                                           value="mlx-community/whisper-large-v3-mlx"
                                            class="w-full border border-gray-300 rounded px-2 py-1">
+                                    <p class="text-xs text-gray-400 mt-1">
+                                        例: mlx-community/whisper-large-v3-mlx（Mac）/ large-v3（Win/Linux）。
+                                        エンジンに合わせて自動変換されます。
+                                    </p>
                                 </div>
                                 <div>
                                     <label class="block text-xs text-gray-600 mb-1">Diarization モデル</label>

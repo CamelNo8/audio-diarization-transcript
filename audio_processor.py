@@ -19,7 +19,6 @@ from pyannote.core import Segment
 from pyannote.audio.core.io import Audio
 from pathlib import Path
 import warnings
-import sys
 import logging
 from typing import Optional, Dict
 import csv
@@ -30,16 +29,7 @@ import shutil
 import os
 
 from speaker_identification import SpeakerIdentifier
-
-# mlx_whisper のインポート（Mac最適化）
-try:
-    import mlx_whisper
-except ImportError:
-    print(
-        "Critical Error: mlx_whisper is required but not installed. Please install it using: uv pip install mlx-whisper",
-        file=sys.stderr,
-    )
-    sys.exit(1)
+import transcription_backend
 
 # Hugging Face トークンに関するFutureWarningを抑制
 warnings.filterwarnings("ignore", category=FutureWarning, module="huggingface_hub")
@@ -81,10 +71,12 @@ class AudioProcessor:
         interactive_unknown_resolve: bool = True,
         denoise: bool = False,
         separator_model: Optional[str] = None,
+        whisper_backend: str = "auto",
     ):
         self.audio_file = audio_file
         self.output_csv_path = output_csv_path
         self.mlx_model_id = mlx_model_id
+        self.whisper_backend = whisper_backend
         self.pyannote_model_id = pyannote_model_id
         self.hf_token = hf_token
         self.identifier = identifier
@@ -409,17 +401,17 @@ class AudioProcessor:
                 self._cluster_segments[cluster_id] = longest_segment
                 self._set_speaker_metadata(cluster_id, f"Unknown_{i:02d}", None, None)
 
-        # 4. 全文一括文字起こし (mlx-whisper)
-        logging.info(f"Running mlx-whisper transcription ({self.mlx_model_id})...")
+        # 4. 全文一括文字起こし（プラットフォームに応じて mlx-whisper / faster-whisper）
         try:
-            whisper_result = mlx_whisper.transcribe(
-                str(self.temp_wav_path),
-                path_or_hf_repo=self.mlx_model_id,
-                verbose=False,
-                language="ja"
+            whisper_result = transcription_backend.transcribe_full(
+                self.temp_wav_path,
+                model_id=self.mlx_model_id,
+                language="ja",
+                prefer_device=self._select_device(),
+                backend=self.whisper_backend,
             )
         except Exception as e:
-            logging.error(f"Error during mlx-whisper transcription: {e}", exc_info=True)
+            logging.error(f"Error during whisper transcription: {e}", exc_info=True)
             return False
 
         segments = whisper_result.get("segments", [])
