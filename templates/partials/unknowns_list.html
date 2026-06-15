@@ -7,25 +7,52 @@
 </div>
 {% endif %}
 
+{# 同名DBの上書き確認バナー #}
+{% if confirm_existing %}
+<div class="mb-4 p-4 bg-yellow-50 border-l-4 border-yellow-500 rounded-r">
+    <p class="text-sm text-yellow-800">
+        ⚠️ 「<strong>{{ confirm_existing.db_name }}</strong>」というデータベースは既に存在します。
+        この既存DBに「<strong>{{ confirm_existing.speaker_name }}</strong>」を保存しますか？
+    </p>
+    <div class="mt-3 flex gap-2">
+        <form hx-post="/unknowns/{{ job.job_id }}/label/{{ confirm_existing.cluster_id }}"
+              hx-target="#unknowns-list" hx-swap="innerHTML">
+            <input type="hidden" name="speaker_name" value="{{ confirm_existing.speaker_name }}">
+            <input type="hidden" name="db_name" value="{{ confirm_existing.db_name }}">
+            <button type="submit"
+                    class="text-sm bg-yellow-600 hover:bg-yellow-700 text-white font-medium py-1 px-3 rounded">
+                既存DBに保存する
+            </button>
+        </form>
+        <button type="button" onclick="this.closest('.bg-yellow-50').remove()"
+                class="text-sm bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-1 px-3 rounded">
+            別名にする
+        </button>
+    </div>
+</div>
+{% endif %}
+
 {# 全ラベル付けで共通の DB セレクタ #}
 <div class="mb-6 p-4 bg-purple-50 border border-purple-200 rounded-lg">
     <label class="block text-sm font-medium text-gray-700 mb-2">📁 保存先データベース</label>
-    <select id="label-db-select" class="w-full text-sm border border-gray-300 rounded px-2 py-1">
+    <select id="label-db-select" onchange="toggleNewDbInput()"
+            class="w-full text-sm border border-gray-300 rounded px-2 py-1">
         {% for db in databases %}
         <option value="{{ db.name }}" {% if db.name == job.db_name %}selected{% endif %}>
             {{ db.name }} ({{ db.speaker_count }} 話者)
         </option>
         {% endfor %}
+        <option value="__new__" {% if not databases %}selected{% endif %}>
+            ＋ 新規データベースを作成…
+        </option>
     </select>
+    <input type="text" id="label-new-db-name" placeholder="新規データベース名（例: オードリー）"
+           class="w-full text-sm border border-gray-300 rounded px-2 py-1 mt-2 {% if databases %}hidden{% endif %}">
     <p class="text-xs text-gray-500 mt-1">
         ラベル付けした音声は <strong>このDB</strong> に <code>{名前}.wav</code> として保存され、
         残りの Unknown も同じDBで自動再照合されます。
+        新規DBを選ぶと、その名前で <code>voice_databases/</code> 下に新しいDBが作成されます。
     </p>
-    {% if not databases %}
-    <p class="text-xs text-red-600 mt-2">
-        DB がありません。<a href="/databases" target="_blank" class="underline">管理画面</a>で作成してください。
-    </p>
-    {% endif %}
 </div>
 
 {# 未解決クラスタ #}
@@ -123,12 +150,25 @@
 </div>
 
 <script>
+    // 新規DB名の入力欄を、セレクタが __new__ の時だけ表示
+    function toggleNewDbInput() {
+        const sel = document.getElementById('label-db-select');
+        const inp = document.getElementById('label-new-db-name');
+        if (!sel || !inp) return;
+        inp.classList.toggle('hidden', sel.value !== '__new__');
+    }
+    toggleNewDbInput();
+
     // フォーム送信前に DB セレクタの値を hidden の db_name にコピー
+    // （確認バナーのフォームは自前の hidden db_name を持つので上書きしない）
     document.body.addEventListener('htmx:configRequest', (e) => {
         const path = e.detail.path || '';
         if (path.startsWith('/unknowns/') && path.includes('/label/')) {
+            if (e.detail.parameters['db_name']) return;
             const sel = document.getElementById('label-db-select');
             if (sel) e.detail.parameters['db_name'] = sel.value;
+            const inp = document.getElementById('label-new-db-name');
+            if (inp) e.detail.parameters['new_db_name'] = inp.value;
         }
     });
 </script>

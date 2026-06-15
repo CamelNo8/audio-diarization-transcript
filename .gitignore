@@ -9,6 +9,7 @@
 *.mp4
 *.csv
 *.env
-__pycache__/
+*__pycache__/
 *.pyc
 *.pyo
+*voice_datavases/

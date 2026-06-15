@@ -716,6 +716,7 @@ async def unknowns_label(
     cluster_id: str,
     speaker_name: str = Form(...),
     db_name: str = Form(...),
+    new_db_name: str = Form(""),
     hf_token_override: str = Form(""),
 ):
     job = _load_job(job_id)
@@ -733,6 +734,33 @@ async def unknowns_label(
     safe_name = vdb.sanitize_name(speaker_name)
     if safe_name is None:
         return _render_error(request, "話者名が無効です（空 or 使用不可文字）。")
+
+    # 新規DB作成モード
+    if db_name == "__new__":
+        safe_new = vdb.sanitize_name(new_db_name)
+        if safe_new is None:
+            return _render_error(request, "新規データベース名が無効です（空 or 使用不可文字）。")
+        # 同名の既存DBがあれば確認バナーを返して処理を中断
+        if (vdb.get_root() / safe_new).is_dir():
+            return templates.TemplateResponse(
+                request,
+                "partials/unknowns_list.html",
+                {
+                    "job": job,
+                    "databases": vdb.list_databases(),
+                    "confirm_existing": {
+                        "db_name": safe_new,
+                        "speaker_name": safe_name,
+                        "cluster_id": cluster_id,
+                    },
+                },
+            )
+        # 同名が無ければ新規作成
+        try:
+            vdb.create_database(safe_new)
+        except ValueError as e:
+            return _render_error(request, f"DB作成エラー: {e}")
+        db_name = safe_new
 
     # DB 検証
     try:
