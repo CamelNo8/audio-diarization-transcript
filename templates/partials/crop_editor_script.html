@@ -1,0 +1,111 @@
+{#
+  切り出しエディタのグルーJS。各ページ（unknowns.html / databases.html）で
+  一度だけ include する。htmx の swap で消えないよう、ページ側に置くこと。
+
+  公開API:
+    window.initCropEditor(id, audioUrl)  … 波形+リージョンを生成し cropEditors[id] に登録
+    window.toggleCropEditor(id, audioUrl)… インライン用の開閉トグル（初回開時に init）
+    window.cropEditors[id] = { ws, playSelection(), reset() }
+#}
+<script type="module">
+    import WaveSurfer from 'https://unpkg.com/wavesurfer.js@7/dist/wavesurfer.esm.js';
+    import RegionsPlugin from 'https://unpkg.com/wavesurfer.js@7/dist/plugins/regions.esm.js';
+
+    window.cropEditors = window.cropEditors || {};
+
+    function initCropEditor(id, audioUrl) {
+        // 同一IDの既存インスタンスは破棄して作り直す（モーダル再利用のため）
+        if (window.cropEditors[id] && window.cropEditors[id].ws) {
+            try { window.cropEditors[id].ws.destroy(); } catch (e) {}
+        }
+
+        const container = document.getElementById('crop-wave-' + id);
+        const startInput = document.getElementById('crop-start-' + id);
+        const endInput = document.getElementById('crop-end-' + id);
+        if (!container || !startInput || !endInput) return null;
+        container.innerHTML = '';
+
+        const regions = RegionsPlugin.create();
+        const ws = WaveSurfer.create({
+            container: container,
+            height: 80,
+            waveColor: '#c4b5fd',
+            progressColor: '#7c3aed',
+            cursorColor: '#7c3aed',
+            url: audioUrl,
+            plugins: [regions],
+        });
+
+        let region = null;
+        let duration = 0;
+
+        function clamp(v) { return Math.max(0, Math.min(v, duration)); }
+
+        ws.on('decode', (d) => {
+            duration = d;
+            startInput.max = d.toFixed(2);
+            endInput.max = d.toFixed(2);
+            region = regions.addRegion({
+                start: 0,
+                end: d,
+                color: 'rgba(124,58,237,0.15)',
+                drag: true,
+                resize: true,
+            });
+            startInput.value = '0.00';
+            endInput.value = d.toFixed(2);
+        });
+
+        // 波形ドラッグ → 数値入力へ反映
+        regions.on('region-updated', (r) => {
+            if (r !== region) return;
+            startInput.value = r.start.toFixed(2);
+            endInput.value = r.end.toFixed(2);
+        });
+
+        // 数値入力 → 波形リージョンへ反映
+        function applyInputs() {
+            if (!region) return;
+            let s = parseFloat(startInput.value);
+            let e = parseFloat(endInput.value);
+            if (isNaN(s)) s = 0;
+            if (isNaN(e)) e = duration;
+            s = clamp(s);
+            e = clamp(e);
+            if (e < s) e = s;
+            region.setOptions({ start: s, end: e });
+            startInput.value = s.toFixed(2);
+            endInput.value = e.toFixed(2);
+        }
+        startInput.addEventListener('change', applyInputs);
+        endInput.addEventListener('change', applyInputs);
+
+        const api = {
+            ws,
+            playSelection() { if (region) region.play(); },
+            reset() {
+                if (!region) return;
+                region.setOptions({ start: 0, end: duration });
+                startInput.value = '0.00';
+                endInput.value = duration.toFixed(2);
+            },
+        };
+        window.cropEditors[id] = api;
+        return api;
+    }
+
+    // インライン（Unknownカード）用の開閉トグル
+    function toggleCropEditor(id, audioUrl) {
+        const wrap = document.getElementById('crop-wrap-' + id);
+        if (!wrap) return;
+        if (wrap.classList.contains('hidden')) {
+            wrap.classList.remove('hidden');
+            if (!window.cropEditors[id]) initCropEditor(id, audioUrl);
+        } else {
+            wrap.classList.add('hidden');
+        }
+    }
+
+    window.initCropEditor = initCropEditor;
+    window.toggleCropEditor = toggleCropEditor;
+</script>

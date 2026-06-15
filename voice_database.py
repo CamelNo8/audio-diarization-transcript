@@ -88,10 +88,12 @@ def list_speakers(db_name: str) -> List[Dict]:
             continue
         if f.suffix.lower() not in SUPPORTED_AUDIO_EXTENSIONS:
             continue
+        st = f.stat()
         speakers.append({
             "filename": f.name,
             "speaker_name": f.stem,
-            "size_bytes": f.stat().st_size,
+            "size_bytes": st.st_size,
+            "mtime": int(st.st_mtime),
         })
     return speakers
 

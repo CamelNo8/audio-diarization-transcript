@@ -1,0 +1,52 @@
+{#
+  再利用可能な「声の切り出し（トリミング）」エディタ。
+  波形ドラッグ選択 + 数値入力（開始/終了秒）を双方向同期する。
+
+  使い方:
+    {% import 'partials/crop_editor.html' as ce %}
+    {{ ce.crop_editor(ed_id, audio_url, start_field, end_field) }}
+
+  パラメータ:
+    ed_id        … 同一ページ内で一意なID（例: 'clip-00'）
+    audio_url    … 波形に読み込む音声のURL
+    start_field  … 開始秒を送信する <input> の name
+    end_field    … 終了秒を送信する <input> の name
+
+  グルーJS (window.toggleCropEditor / initCropEditor) は
+  partials/crop_editor_script.html を各ページで一度 include して読み込む。
+#}
+{% macro crop_editor(ed_id, audio_url, start_field, end_field) %}
+<div class="mt-2">
+    <button type="button"
+            onclick="toggleCropEditor('{{ ed_id }}', '{{ audio_url }}')"
+            class="text-xs text-purple-600 hover:text-purple-700 underline">
+        ✂ 範囲を指定（純粋な声だけ残す）
+    </button>
+    <div id="crop-wrap-{{ ed_id }}" class="hidden mt-2 p-3 bg-gray-50 border border-gray-200 rounded">
+        <div id="crop-wave-{{ ed_id }}" class="w-full"></div>
+        <div class="flex flex-wrap items-center gap-2 mt-2 text-xs text-gray-600">
+            <label class="font-medium">開始(秒)</label>
+            <input type="number" step="0.01" min="0"
+                   name="{{ start_field }}" id="crop-start-{{ ed_id }}"
+                   class="w-24 border border-gray-300 rounded px-1.5 py-0.5">
+            <label class="font-medium">終了(秒)</label>
+            <input type="number" step="0.01" min="0"
+                   name="{{ end_field }}" id="crop-end-{{ ed_id }}"
+                   class="w-24 border border-gray-300 rounded px-1.5 py-0.5">
+            <button type="button"
+                    onclick="cropEditors['{{ ed_id }}'] && cropEditors['{{ ed_id }}'].playSelection()"
+                    class="bg-purple-100 hover:bg-purple-200 text-purple-700 rounded px-2 py-0.5">
+                ▶ 選択範囲を試聴
+            </button>
+            <button type="button"
+                    onclick="cropEditors['{{ ed_id }}'] && cropEditors['{{ ed_id }}'].reset()"
+                    class="text-gray-500 hover:text-gray-700 underline">
+                全体に戻す
+            </button>
+        </div>
+        <p class="text-[11px] text-gray-400 mt-1">
+            波形をドラッグするか数値を入力して、保存したい範囲を選択してください。空欄なら全体を保存します。
+        </p>
+    </div>
+</div>
+{% endmacro %}

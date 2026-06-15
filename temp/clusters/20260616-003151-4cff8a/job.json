@@ -1,0 +1,72 @@
+{
+  "job_id": "20260616-003151-4cff8a",
+  "csv_path": "/Users/hiyori/dev/audio-diarization-transcript/temp/transcription.csv",
+  "srt_path": "/Users/hiyori/dev/audio-diarization-transcript/temp/transcription.srt",
+  "srt_filename": "transcription.srt",
+  "db_name": "ordori-",
+  "threshold": 0.5,
+  "embedding_model": "pyannote/embedding",
+  "clusters": [
+    {
+      "cluster_id": "SPEAKER_00",
+      "unknown_label": "Unknown_01",
+      "distance": 0.06661025457077863,
+      "candidate_distances": null,
+      "clip_filename": "clip_SPEAKER_00.wav",
+      "segment_start": 184.91346875000002,
+      "segment_end": 190.97159375,
+      "resolved": true,
+      "resolved_name": "不明",
+      "resolved_method": "auto"
+    },
+    {
+      "cluster_id": "SPEAKER_01",
+      "unknown_label": "Unknown_02",
+      "distance": null,
+      "candidate_distances": null,
+      "clip_filename": "clip_SPEAKER_01.wav",
+      "segment_start": 44.85096875,
+      "segment_end": 55.229093750000004,
+      "resolved": true,
+      "resolved_name": "細貝",
+      "resolved_method": "manual"
+    },
+    {
+      "cluster_id": "SPEAKER_02",
+      "unknown_label": "Unknown_03",
+      "distance": 0.004423459676319408,
+      "candidate_distances": null,
+      "clip_filename": "clip_SPEAKER_02.wav",
+      "segment_start": 56.96721875,
+      "segment_end": 110.15721875000001,
+      "resolved": true,
+      "resolved_name": "若林",
+      "resolved_method": "auto"
+    },
+    {
+      "cluster_id": "SPEAKER_03",
+      "unknown_label": "Unknown_04",
+      "distance": 0.0172843693580651,
+      "candidate_distances": null,
+      "clip_filename": "clip_SPEAKER_03.wav",
+      "segment_start": 250.82721875000001,
+      "segment_end": 265.82909375,
+      "resolved": true,
+      "resolved_name": "名前忘れた",
+      "resolved_method": "auto"
+    },
+    {
+      "cluster_id": "SPEAKER_04",
+      "unknown_label": "Unknown_05",
+      "distance": 0.060345727788704395,
+      "candidate_distances": null,
+      "clip_filename": "clip_SPEAKER_04.wav",
+      "segment_start": 157.93034375000002,
+      "segment_end": 165.03471875000002,
+      "resolved": true,
+      "resolved_name": "春日",
+      "resolved_method": "auto"
+    }
+  ],
+  "created_at": "2026-06-16T00:37:51"
+}

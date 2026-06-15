@@ -8,6 +8,7 @@ import json
 import uuid
 import shutil
 import logging
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
@@ -222,6 +223,53 @@ def _relabel_csv(csv_path: Path, mapping: Dict[str, Tuple[str, Optional[float]]]
         writer = csv.writer(f, quoting=csv.QUOTE_ALL)
         writer.writerows(rows)
     return count
+
+
+# ===================================================================
+# Helper: 音声の切り出し（トリミング）
+# ===================================================================
+def _parse_opt_float(raw: str) -> Optional[float]:
+    """フォームの開始/終了秒をパースする。空 / 不正 / 負値は None。"""
+    s = (raw or "").strip()
+    if not s:
+        return None
+    try:
+        v = float(s)
+    except ValueError:
+        return None
+    return v if v >= 0 else None
+
+
+def _crop_audio_file(
+    src: Path,
+    dst: Path,
+    start: Optional[float],
+    end: Optional[float],
+    *,
+    to_wav16k: bool,
+) -> None:
+    """src を [start, end]（src 内の絶対秒）で dst に切り出す。
+
+    start/end は省略可（None なら先頭/末尾まで）。
+    to_wav16k=True で 16kHz mono WAV に再エンコード（声紋用）、
+    False なら元コーデックを尊重しつつ dst の拡張子に従う。
+    """
+    cmd = ["ffmpeg", "-nostdin", "-loglevel", "error"]
+    if start is not None and start > 0:
+        cmd += ["-ss", f"{start:.3f}"]
+    if end is not None:
+        cmd += ["-to", f"{end:.3f}"]
+    cmd += ["-i", str(src), "-vn"]
+    if to_wav16k:
+        cmd += ["-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1"]
+    cmd += ["-y", str(dst)]
+    subprocess.run(
+        cmd,
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
 
 
 # ===================================================================
@@ -643,7 +691,52 @@ async def api_speaker_audio(name: str, filename: str):
         path = vdb.speaker_path(name, filename)
     except (ValueError, FileNotFoundError):
         return HTMLResponse("Not found", status_code=404)
-    return FileResponse(path=path, media_type="audio/wav")
+    return FileResponse(
+        path=path,
+        media_type="audio/wav",
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
+
+
+@app.post("/api/databases/{name}/speakers/{filename}/trim", response_class=HTMLResponse)
+async def api_trim_speaker(
+    request: Request,
+    name: str,
+    filename: str,
+    start: str = Form(""),
+    end: str = Form(""),
+):
+    """登録済み話者ファイルを指定範囲で切り出して上書き保存する（純粋な声だけ残す）。"""
+    try:
+        path = vdb.speaker_path(name, filename)
+    except (ValueError, FileNotFoundError) as e:
+        return _render_error(request, str(e))
+
+    cs = _parse_opt_float(start)
+    ce = _parse_opt_float(end)
+    if (cs is None or cs <= 0) and ce is None:
+        return _render_error(request, "切り出し範囲が指定されていません。")
+    if cs is not None and ce is not None and ce <= cs:
+        return _render_error(request, "終了時間は開始時間より後にしてください。")
+
+    # 一時ファイルに切り出してから上書き（同じ拡張子を維持）
+    tmp = TEMP_DIR / f"_trim_{uuid.uuid4().hex}{path.suffix}"
+    try:
+        _crop_audio_file(path, tmp, cs, ce, to_wav16k=False)
+        shutil.move(str(tmp), str(path))
+    except subprocess.CalledProcessError as e:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        return _render_error(request, f"音声の切り出しに失敗しました: {e.stderr}")
+
+    speakers = vdb.list_speakers(name)
+    return templates.TemplateResponse(
+        request,
+        "partials/db_speakers.html",
+        {"db_name": name, "speakers": speakers},
+    )
 
 
 @app.get("/databases", response_class=HTMLResponse)
@@ -718,6 +811,8 @@ async def unknowns_label(
     db_name: str = Form(...),
     new_db_name: str = Form(""),
     hf_token_override: str = Form(""),
+    clip_start: str = Form(""),
+    clip_end: str = Form(""),
 ):
     job = _load_job(job_id)
     if job is None:
@@ -768,14 +863,37 @@ async def unknowns_label(
     except (ValueError, FileNotFoundError) as e:
         return _render_error(request, f"DBエラー: {e}")
 
-    # クリップを DB に保存
+    # クリップを DB に保存（必要なら指定範囲だけ切り出してから保存）
     clip_path = _job_dir(job_id) / target["clip_filename"]
     if not clip_path.exists():
         return _render_error(request, f"クラスタ音声が見つかりません: {clip_path}")
+
+    cs = _parse_opt_float(clip_start)
+    ce = _parse_opt_float(clip_end)
+    need_crop = (cs is not None and cs > 0) or (ce is not None)
+    if need_crop and cs is not None and ce is not None and ce <= cs:
+        return _render_error(request, "終了時間は開始時間より後にしてください。")
+
+    clip_for_save = clip_path
+    tmp_crop: Optional[Path] = None
+    if need_crop:
+        tmp_crop = _job_dir(job_id) / f"_cropsave_{cluster_id}.wav"
+        try:
+            _crop_audio_file(clip_path, tmp_crop, cs, ce, to_wav16k=True)
+        except subprocess.CalledProcessError as e:
+            return _render_error(request, f"音声の切り出しに失敗しました: {e.stderr}")
+        clip_for_save = tmp_crop
+
     try:
-        vdb.add_speaker_file(db_name, clip_path, dest_filename=f"{safe_name}.wav")
+        vdb.add_speaker_file(db_name, clip_for_save, dest_filename=f"{safe_name}.wav")
     except ValueError as e:
         return _render_error(request, f"DB保存エラー: {e}")
+    finally:
+        if tmp_crop is not None:
+            try:
+                tmp_crop.unlink()
+            except OSError:
+                pass
 
     # SpeakerIdentifier を読み直して新DB全体を登録
     hf_token = hf_token_override or os.getenv("HF_TOKEN", "")
