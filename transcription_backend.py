@@ -234,16 +234,16 @@ def _transcribe_transformers(
             model=repo,
             torch_dtype=dtype,
             device=0 if use_cuda else -1,
-            chunk_length_s=30,   # 長尺音声をチャンク分割
-            stride_length_s=5,   # チャンク境界の取りこぼし防止
         )
         _HF_ASR_CACHE[cache_key] = asr
 
     logging.info(f"Running transformers Whisper transcription ({repo})...")
+    # chunk_length_s を指定しない = Whisper 本来の逐次(sequential)ロングフォーム復号。
+    # モデルが予測するタイムスタンプ境界で文単位に分割されるため、faster-whisper と
+    # 同様の細かいセグメントが得られる（chunked 方式はまとめ過ぎて字幕が繋がる）。
     result = asr(
         str(audio_path),
-        batch_size=8 if use_cuda else 1,   # GPU はバッチで高速化
-        return_timestamps=True,            # チャンク単位のタイムスタンプ
+        return_timestamps=True,
         generate_kwargs={"language": language, "task": "transcribe"},
     )
 
