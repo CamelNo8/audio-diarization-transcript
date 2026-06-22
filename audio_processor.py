@@ -315,6 +315,11 @@ class AudioProcessor:
             logging.error(f"Error during speaker diarization: {e}")
             return False
 
+        # pyannote-audio 4.x はパイプラインが DiarizeOutput を返す（3.x は Annotation を直接返す）。
+        # 以降は Annotation の API（labels / label_timeline / itertracks）を使うのでアンラップする。
+        if hasattr(diarization, "speaker_diarization"):
+            diarization = diarization.speaker_diarization
+
         # 3. 各クラスターごとの話者照合・特定
         if self.identifier:
             logging.info("Identifying speakers for each cluster...")
@@ -525,6 +530,9 @@ class AudioProcessor:
         if known_num_speakers is not None:
             diarization_params["num_speakers"] = known_num_speakers
         diarization = pipeline(str(self.temp_wav_path), **diarization_params)
+        # pyannote-audio 4.x はパイプラインが DiarizeOutput を返す（3.x は Annotation を直接返す）。
+        if hasattr(diarization, "speaker_diarization"):
+            diarization = diarization.speaker_diarization
 
         # 各クラスタの代表区間（最長セグメント、1秒以上を優先）を記録
         clusters: Dict[str, Dict[str, float]] = {}
