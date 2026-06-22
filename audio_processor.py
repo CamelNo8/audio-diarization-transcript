@@ -486,6 +486,96 @@ class AudioProcessor:
             return False
 
     # ------------------------------------------------------------------
+    # API 向け: 背景音除去 + 話者分離 + 文字起こしまでを実行し、
+    # 話者照合（声紋DB）と CSV 出力は行わず、結果を dict で返す。
+    # 照合は PC 側が vocals WAV を使って行う。
+    # ------------------------------------------------------------------
+    def process_for_api(
+        self,
+        known_num_speakers: Optional[int] = None,
+        vocals_out: Optional[Path] = None,
+    ) -> Dict[str, object]:
+        """Spark などのリモート推論サーバー用。
+
+        実行する工程:
+          1. 前処理（WAV変換、denoise=True なら audio-separator で背景音除去）
+          2. pyannote 話者分離
+          3. faster-whisper / mlx-whisper 文字起こし
+          4. Whisper セグメントへ pyannote クラスタIDを割り当て（マージ）
+
+        戻り値（JSON 化可能な dict）:
+          {
+            "segments":   [{"start", "end", "text", "cluster_id"}, ...],
+            "clusters":   {cluster_id: {"rep_start", "rep_end"}, ...},  # 照合用代表区間
+            "num_speakers": int,
+            "vocals_path": str | None,  # vocals_out にコピーした処理済みWAVのパス
+          }
+
+        話者名は付与しない（照合は PC 側で実施するため cluster_id のみ返す）。
+        """
+        # 1. 前処理（denoise=True なら背景音除去まで実施）
+        self.prepare_audio()
+
+        # 2. 話者分離
+        pipeline = self._get_cached_pipeline(
+            self.pyannote_model_id, self.hf_token, self._select_device()
+        )
+        logging.info("Running speaker diarization (API)...")
+        diarization_params = {}
+        if known_num_speakers is not None:
+            diarization_params["num_speakers"] = known_num_speakers
+        diarization = pipeline(str(self.temp_wav_path), **diarization_params)
+
+        # 各クラスタの代表区間（最長セグメント、1秒以上を優先）を記録
+        clusters: Dict[str, Dict[str, float]] = {}
+        for cluster_id in diarization.labels():
+            timeline = diarization.label_timeline(cluster_id)
+            valid = [s for s in timeline if s.duration >= 1.0]
+            rep = max(valid or list(timeline), key=lambda s: s.duration)
+            clusters[cluster_id] = {"rep_start": float(rep.start), "rep_end": float(rep.end)}
+
+        # 3. 文字起こし
+        whisper_result = transcription_backend.transcribe_full(
+            self.temp_wav_path,
+            model_id=self.mlx_model_id,
+            language="ja",
+            prefer_device=self._select_device(),
+            backend=self.whisper_backend,
+        )
+
+        # 4. マージ（Whisper セグメント → 最重複クラスタID）
+        out_segments = []
+        for seg in whisper_result.get("segments", []):
+            w_start, w_end = float(seg["start"]), float(seg["end"])
+            w_text = seg["text"].strip()
+            if not w_text:
+                continue
+            w_segment = Segment(w_start, w_end)
+            durations: Dict[str, float] = {}
+            for p_seg, _, cluster_id in diarization.itertracks(yield_label=True):
+                overlap = w_segment & p_seg
+                if overlap:
+                    durations[cluster_id] = durations.get(cluster_id, 0.0) + overlap.duration
+            best_cluster = max(durations, key=durations.get) if durations else None
+            out_segments.append(
+                {"start": w_start, "end": w_end, "text": w_text, "cluster_id": best_cluster}
+            )
+
+        # 処理済み（背景音除去済み）WAV を照合用に確定パスへコピー
+        vocals_path: Optional[str] = None
+        if vocals_out is not None and self.temp_wav_path is not None:
+            vocals_out.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(self.temp_wav_path, vocals_out)
+            vocals_path = str(vocals_out)
+
+        return {
+            "segments": out_segments,
+            "clusters": clusters,
+            "num_speakers": len(clusters),
+            "vocals_path": vocals_path,
+        }
+
+    # ------------------------------------------------------------------
     # Unknown クラスタの永続化（Web UI 向け）
     # ------------------------------------------------------------------
 
