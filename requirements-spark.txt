@@ -1,0 +1,66 @@
+# ===================================================================
+# requirements-spark.txt — DGX Spark (GB10 / Blackwell sm_121 / aarch64) 専用
+# ===================================================================
+# このファイルは pyproject.toml とは「真逆」の依存スタックを固定する。
+# pyproject は Mac/一般Linux 想定 (torch<2.8 / pyannote<4.0 / huggingface_hub<1.0)。
+# GB10 (sm_121) は cu129 が必須で、それに伴い pyannote 4.x / hub 1.x が連鎖する。
+# → Spark では絶対に `uv sync` / `uv pip install -e .` を使わない。これを使う。
+#
+# 動作確定の経緯 (要点):
+#   - sm_121 は torch cu128 だと実行時 nvrtc JIT が architecture を知らず落ちる → cu129 必須。
+#   - cu129 は torchaudio 2.8+ を引き込み、pyannote 3.x が torchaudio.AudioMetaData 削除で壊れる
+#     → pyannote-audio 4.x へ。
+#   - pyannote 4.x が huggingface-hub 1.x を要求 → transformers 最新化で衝突解消。
+#   - CTranslate2 (faster-whisper) は aarch64 用 CUDA ビルドが無いため、CUDA 文字起こしは
+#     transformers バックエンド (transcription_backend.py / commit 7bbf09d) が担う。
+#   - audio-separator は GPU extra (onnxruntime-gpu) の aarch64 wheel が無いので [cpu] を使う
+#     (high モードの roformer は torch=CUDA で動く / fast の Kim_Vocal_2.onnx だけ CPU)。
+#
+# --- インストール手順 (順序が重要。torch 3点は必ず最後・同cu129で揃える) -----------
+#   cd ~/yamada/dev/audio-diarization-transcript
+#   ntut                       # 大学プロキシ (新SSHセッションごとに必須)
+#   uv pip install -r requirements-spark.txt
+#   # ↑ resolver が PyPI から非cu129 torch を拾わないよう、torch 3点は +cu129 ローカル版で
+#   #   ピン済み (+cu129 は PyTorch index にしか存在しないため index 取り違えを防げる)。
+#   #   万一衝突する場合はメモの順序 (ML依存→transformers更新→最後にtorch cu129) で個別実行。
+#
+# 検証:
+#   python -c "import torch,torchaudio,torchvision,pyannote.audio as pa; \
+#     print(torch.__version__,torchaudio.__version__,torchvision.__version__,pa.__version__); \
+#     x=torch.randn(8,dtype=torch.complex64,device='cuda'); print(float(torch.abs(x).sum()))"
+#
+# 起動 (HF_HUB_OFFLINE は app.py が既定で 1=オフラインにするので明示的に 0 へ):
+#   export HF_HUB_OFFLINE=0
+#   python -m uvicorn app:app --host 127.0.0.1 --port 8000   # 素の uvicorn はシステム版を拾う
+# ===================================================================
+
+# PyTorch index (cu129) を有効化する。PyPI と併用するため extra-index にする。
+--extra-index-url https://download.pytorch.org/whl/cu129
+
+# --- torch 3点セット (必ず同一 cu129。GB10 sm_121 の complex abs / nvrtc 対策) -------
+torch==2.12.1+cu129
+torchaudio==2.11.0+cu129
+torchvision==0.27.1+cu129
+
+# --- 音声処理コア -----------------------------------------------------------------
+pyannote-audio==4.0.5
+huggingface-hub==1.20.1
+transformers>=4.50          # pyannote4.x/hub1.x と整合する最新系 (メモ: 「最新化」で衝突解消)
+audio-separator[cpu]>=0.21.0
+omegaconf>=2.3.0
+scipy>=1.10.0
+faster-whisper>=1.0.0       # aarch64 では CUDA 非対応のため CPU/transformers フォールバック用
+numpy>=1.24.0
+
+# --- 字幕マッチング / 出力 --------------------------------------------------------
+pandas>=2.0.0
+faiss-cpu>=1.7.4
+sentence-transformers>=2.5.0,<6.0
+python-dotenv>=1.0.0
+
+# --- FastAPI + htmx Web UI -------------------------------------------------------
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+jinja2>=3.1.0
+python-multipart>=0.0.6
+requests>=2.31.0
