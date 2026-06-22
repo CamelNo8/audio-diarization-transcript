@@ -3,7 +3,9 @@
 プラットフォームに応じて Whisper 実装を切り替える:
 
 - macOS (Apple Silicon) … mlx-whisper（Metal 最適化）
-- Windows / Linux        … faster-whisper（CUDA 対応・CPU フォールバック）
+- Windows / Linux (x86)  … faster-whisper（CTranslate2 CUDA）
+- Linux aarch64 (GB10等) … transformers + torch（CUDA）に自動フォールバック
+                           （CTranslate2 に aarch64 用 CUDA ビルドが無いため）
 
 いずれのバックエンドも ``{"segments": [{"start", "end", "text"}, ...]}`` という
 共通フォーマットを返すため、呼び出し側（AudioProcessor）は実装差を意識しない。
@@ -84,7 +86,7 @@ def _resolve_backend(backend: Optional[str]) -> str:
     "auto" / None の場合は実行環境から判定する。
     """
     normalized = (backend or "auto").lower()
-    if normalized in ("mlx", "faster"):
+    if normalized in ("mlx", "faster", "transformers"):
         return normalized
     return "mlx" if is_apple_silicon() else "faster"
 
@@ -123,9 +125,21 @@ def _transcribe_faster_whisper(
         )
         try:
             model = WhisperModel(fw_model_name, device=device, compute_type=compute_type)
-        except Exception:
-            # CUDA 上で float16 が使えない / cuDNN 不整合などのフォールバック
-            if device == "cuda":
+        except Exception as e:
+            err = str(e).lower()
+            if device == "cuda" and "not compiled with cuda" in err:
+                # CTranslate2 が CUDA 非対応ビルド（aarch64/ARM の PyPI wheel は CPU 専用）。
+                # GPU が使えないので CPU(int8) にフォールバックする。
+                logging.warning(
+                    "CTranslate2 が CUDA 非対応のため、faster-whisper を CPU(int8) で実行します。"
+                )
+                device, compute_type = "cpu", "int8"
+                cache_key = (fw_model_name, device, compute_type)
+                model = _FW_MODEL_CACHE.get(cache_key) or WhisperModel(
+                    fw_model_name, device=device, compute_type=compute_type
+                )
+            elif device == "cuda":
+                # CUDA 上で float16 が使えない / cuDNN 不整合などのフォールバック
                 logging.warning(
                     "faster-whisper の float16/CUDA 初期化に失敗したため "
                     "compute_type=int8_float16 で再試行します。"
@@ -150,6 +164,101 @@ def _transcribe_faster_whisper(
         {"start": float(s.start), "end": float(s.end), "text": s.text}
         for s in segments_iter
     ]
+    return {"segments": segments}
+
+
+# ---- transformers (torch) backend -------------------------------------------
+# faster-whisper(CTranslate2) は aarch64 では CUDA 非対応ビルドしか配布されていない。
+# そのため GPU で文字起こししたい aarch64 環境（例: NVIDIA GB10）では、torch CUDA を
+# 使う transformers 実装にフォールバックする（同じ Whisper large-v3 重みなので精度は同等）。
+
+_HF_WHISPER_REPO = {
+    "large-v3-turbo": "openai/whisper-large-v3-turbo",
+    "turbo": "openai/whisper-large-v3-turbo",
+    "large-v3": "openai/whisper-large-v3",
+    "large-v2": "openai/whisper-large-v2",
+    "large-v1": "openai/whisper-large-v1",
+    "large": "openai/whisper-large-v3",
+    "medium": "openai/whisper-medium",
+    "small": "openai/whisper-small",
+    "base": "openai/whisper-base",
+    "tiny": "openai/whisper-tiny",
+    "distil-large-v3": "distil-whisper/distil-large-v3",
+    "distil-large-v2": "distil-whisper/distil-large-v2",
+}
+
+
+def _to_hf_whisper_repo(model_id: str) -> str:
+    """品質キー（"large-v3" 等）を transformers 用の HF リポジトリへ変換する。
+    既に ``openai/`` や ``distil-whisper/`` のフルリポジトリ指定ならそのまま使う。
+    """
+    if model_id.lower().startswith(("openai/", "distil-whisper/")):
+        return model_id
+    return _HF_WHISPER_REPO.get(_to_faster_whisper_model(model_id), "openai/whisper-large-v3")
+
+
+def _ctranslate2_supports_cuda() -> bool:
+    """インストール済みの CTranslate2 が CUDA で実行可能か（CUDA ビルド かつ GPU あり）。
+
+    aarch64 の PyPI wheel は CPU 専用ビルドのため 0 を返す → transformers へ切り替える。
+    """
+    try:
+        import ctranslate2
+
+        return ctranslate2.get_cuda_device_count() > 0
+    except Exception:
+        return False
+
+
+# transformers ASR パイプラインは初期化が重いため (repo, device, dtype) でキャッシュ。
+_HF_ASR_CACHE: Dict[tuple, Any] = {}
+
+
+def _transcribe_transformers(
+    audio_path: Path, model_id: str, language: str, device: str
+) -> Dict[str, Any]:
+    from transformers import pipeline  # 遅延インポート
+
+    repo = _to_hf_whisper_repo(model_id)
+    use_cuda = device == "cuda"
+    dtype = torch.float16 if use_cuda else torch.float32
+
+    cache_key = (repo, device, str(dtype))
+    asr = _HF_ASR_CACHE.get(cache_key)
+    if asr is None:
+        logging.info(
+            f"Loading transformers Whisper ({repo}, device={device}, dtype={dtype})..."
+        )
+        asr = pipeline(
+            "automatic-speech-recognition",
+            model=repo,
+            torch_dtype=dtype,
+            device=0 if use_cuda else -1,
+            chunk_length_s=30,   # 長尺音声をチャンク分割
+            stride_length_s=5,   # チャンク境界の取りこぼし防止
+        )
+        _HF_ASR_CACHE[cache_key] = asr
+
+    logging.info(f"Running transformers Whisper transcription ({repo})...")
+    result = asr(
+        str(audio_path),
+        batch_size=8 if use_cuda else 1,   # GPU はバッチで高速化
+        return_timestamps=True,            # チャンク単位のタイムスタンプ
+        generate_kwargs={"language": language, "task": "transcribe"},
+    )
+
+    segments: List[Dict[str, Any]] = []
+    for chunk in result.get("chunks", []):
+        start, end = chunk.get("timestamp", (None, None))
+        if start is None:
+            start = segments[-1]["end"] if segments else 0.0
+        if end is None:
+            end = start
+        segments.append(
+            {"start": float(start), "end": float(end), "text": chunk.get("text", "")}
+        )
+    if not segments and result.get("text"):
+        segments = [{"start": 0.0, "end": 0.0, "text": result["text"]}]
     return {"segments": segments}
 
 
@@ -190,6 +299,19 @@ def transcribe_full(
             logging.warning(
                 "mlx-whisper が見つからないため faster-whisper にフォールバックします。"
             )
+            chosen = "faster"
 
     device = select_whisper_device(prefer_device)
+
+    if chosen == "transformers":
+        return _transcribe_transformers(audio_path, model_id, language, device)
+
+    # chosen == "faster"。ただし CTranslate2 が CUDA 非対応ビルド（aarch64 等）で
+    # GPU を使いたい場合は、CPU に落ちる代わりに transformers(torch CUDA) を使う。
+    if device == "cuda" and not _ctranslate2_supports_cuda():
+        logging.warning(
+            "CTranslate2 が CUDA 非対応のため、transformers(torch CUDA) backend を使用します。"
+        )
+        return _transcribe_transformers(audio_path, model_id, language, device)
+
     return _transcribe_faster_whisper(audio_path, model_id, language, device)
