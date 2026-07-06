@@ -13,3 +13,5 @@
 *.pyc
 *.pyo
 voice_databases/
+.DS_Store
+**/.DS_Store
