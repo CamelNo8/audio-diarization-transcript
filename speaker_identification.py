@@ -20,18 +20,38 @@ import subprocess
 import tempfile
 from typing import Dict, Optional, Tuple
 
+from embedding_cache import EmbeddingCache, get_default_cache
+
 # 登録音声の前後から削るノイズ排除用マージン（秒）
 REGISTRATION_TRIM_SEC = 0.5
+
+# 埋め込みキャッシュのスキーマ版。register_speaker の前処理（トリミング量・
+# 正規化方法など）を変えたらここを上げると旧キャッシュと分離される。
+_EMBEDDING_CACHE_SCHEMA = "v1"
 
 
 class SpeakerIdentifier:
     """登録話者の管理、特徴量抽出、照合を行うクラス"""
 
-    def __init__(self, model_name: str, hf_token: str, threshold: float = 0.5):
+    def __init__(
+        self,
+        model_name: str,
+        hf_token: str,
+        threshold: float = 0.5,
+        cache: Optional[EmbeddingCache] = None,
+    ):
+        self.model_name = model_name
         self.threshold = threshold
         self.inference = self._load_model(model_name, hf_token)
         self.registry_embeddings = {}
         self.unknown_counter = 1
+        # 登録話者の埋め込みは（同じファイル・同じモデルなら）決定的なので永続キャッシュする。
+        self._cache = cache if cache is not None else get_default_cache()
+
+    @property
+    def _cache_namespace(self) -> str:
+        """埋め込みキャッシュの名前空間（モデル・前処理パラメータ・版を畳み込む）。"""
+        return f"{self.model_name}__trim{REGISTRATION_TRIM_SEC}__{_EMBEDDING_CACHE_SCHEMA}"
 
     def _load_model(self, model_name: str, hf_token: str) -> Inference:
         logging.info(f"Loading embedding model ({model_name})...")
@@ -51,17 +71,29 @@ class SpeakerIdentifier:
         """指定した音声ファイルから特徴量を抽出し、話者を登録する。
 
         登録音声の前後をノイズ排除のためにトリミングしてから埋め込みを抽出する。
+        埋め込みは永続キャッシュ経由で取得し、同一ファイルの再計算（GPU 推論）を回避する。
         """
         if not audio_path.exists():
             raise FileNotFoundError(f"登録用音声ファイルが見つかりません: {audio_path}")
 
+        self.registry_embeddings[name] = self._cache.get_or_compute(
+            self._cache_namespace,
+            audio_path,
+            self._compute_registration_embedding,
+        )
+        logging.info(f"Speaker registered: {name} ({audio_path})")
+
+    def _compute_registration_embedding(self, audio_path: Path):
+        """登録音声を前処理（前後トリミング）してから埋め込みを抽出・正規化する。
+
+        キャッシュミス時のみ呼ばれる純粋な計算部（GPU 推論）。
+        """
         trimmed_path: Optional[Path] = None
         try:
             trimmed_path = self._preprocess_registration_audio(audio_path)
             target_path = trimmed_path if trimmed_path is not None else audio_path
             embedding = self.inference(str(target_path))
-            self.registry_embeddings[name] = self._normalize_embedding(embedding)
-            logging.info(f"Speaker registered: {name} ({audio_path})")
+            return self._normalize_embedding(embedding)
         finally:
             if trimmed_path is not None and trimmed_path.exists():
                 try:
