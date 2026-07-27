@@ -27,15 +27,18 @@ from typing import Callable, Optional
 
 import numpy as np
 
+from src.config import DEFAULT_EMBEDDING_CACHE_DIR
+
 _HASH_CHUNK = 1 << 20  # 1 MiB
 _SAFE_NAMESPACE_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
 
 def default_cache_dir() -> Path:
+    """キャッシュの保存先を返す（環境変数 EMBEDDING_CACHE_DIR で上書き可）。"""
     env = os.getenv("EMBEDDING_CACHE_DIR")
     if env:
         return Path(env).expanduser().resolve()
-    return Path(__file__).resolve().parent / "embedding_cache"
+    return DEFAULT_EMBEDDING_CACHE_DIR
 
 
 def _hash_file(path: Path) -> str:

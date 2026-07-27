@@ -1,0 +1,89 @@
+"""プロジェクト全体で共有する定数・既定値。
+
+閾値・モデル名・パスはここに集約する（規約4.5）。
+モジュール固有の値は各モジュール側に置く。
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+# ===================================================================
+# パス
+# ===================================================================
+#: リポジトリのルート（このファイルは <root>/src/config.py にある）
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+#: Web UI の作業ディレクトリ（アップロード音声・生成物の置き場）
+TEMP_DIR = PROJECT_ROOT / "temp"
+
+#: 未知話者クラスタのジョブ保存先
+CLUSTERS_ROOT = TEMP_DIR / "clusters"
+
+#: Jinja2 テンプレートの置き場
+TEMPLATES_DIR = PROJECT_ROOT / "templates"
+
+#: 声紋データベースの既定ルート（環境変数 VOICE_DB_ROOT で上書き可）
+DEFAULT_VOICE_DB_ROOT = PROJECT_ROOT / "voice_databases"
+
+#: 話者エンベディング永続キャッシュの既定ルート
+#: （環境変数 EMBEDDING_CACHE_DIR で上書き可）
+DEFAULT_EMBEDDING_CACHE_DIR = PROJECT_ROOT / "embedding_cache"
+
+# ===================================================================
+# 音声フォーマット
+# ===================================================================
+#: pyannote / Whisper へ渡す音声のサンプリングレート
+TARGET_SAMPLE_RATE_HZ = 16000
+
+#: 同上（モノラル）
+TARGET_CHANNELS = 1
+
+# ===================================================================
+# 話者分離・話者照合
+# ===================================================================
+#: 同一話者と判定するコサイン距離の既定閾値
+DEFAULT_SPEAKER_THRESHOLD = 0.5
+
+#: 話者エンベディング抽出モデル
+DEFAULT_EMBEDDING_MODEL = "pyannote/embedding"
+
+#: 話者分離（ダイアライゼーション）パイプライン
+DEFAULT_DIARIZATION_MODEL = "pyannote/speaker-diarization-3.1"
+
+#: 登録音声の前後を切り落とす秒数（無音・言い出しのブレを除くため）
+REGISTRATION_TRIM_SEC = 0.5
+
+#: トリミング後に最低限残したい音声長（秒）
+REGISTRATION_MIN_REMAINING_SEC = 0.5
+
+# ===================================================================
+# 文字起こし
+# ===================================================================
+#: Whisper の既定モデル（Apple Silicon / mlx-whisper 向け表記）
+DEFAULT_WHISPER_MODEL = "mlx-community/whisper-large-v3-mlx"
+
+# ===================================================================
+# 背景音 / BGM 除去
+# ===================================================================
+#: audio-separator の既定分離モデル
+#: （HuggingFace の karaokenerds/all-uvr-models から取得）
+DEFAULT_SEPARATOR_MODEL = "Kim_Vocal_2.onnx"
+
+# ===================================================================
+# 字幕マッチング
+# ===================================================================
+#: 台本・音声認識テキストをまとめる N-gram の最大長
+NGRAM_MAX_N = 3
+
+#: 近傍探索で1件あたり取得する候補数
+SIMILAR_VECTOR_TOP_K = 10
+
+#: 文埋め込みモデル（多言語 STS）
+SENTENCE_EMBEDDING_MODEL = "stsb-xlm-r-multilingual"
+
+# ===================================================================
+# 名前の検証
+# ===================================================================
+#: DB名・話者名に使えない文字（ファイル名として不正になるもの）
+INVALID_NAME_CHARS = set('/\\:*?"<>|')

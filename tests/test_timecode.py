@@ -1,22 +1,25 @@
 """時刻文字列と秒の相互変換の特性テスト。
 
-リファクタリング前の現在の振る舞いを固定する。対象の3関数は現在
+リファクタリング前の現在の振る舞いを固定する。対象の関数は元々
 app.py / audio_processor.py / subtitle_matcher.py に分散しており、
-Phase 1 で src/common/timecode.py へ統合する予定。統合の前後で
-ここの期待値が変わらないことを保証する。
+Phase 1 で src/common/timecode.py へ統合した。統合の前後で
+ここの期待値は変えていない。
 """
 
 from __future__ import annotations
 
 import pytest
 
-from app import _colon_ms_to_comma_ms
-from audio_processor import format_time
-from subtitle_matcher import seconds_to_time_str, time_str_to_seconds
+from src.common.timecode import (
+    colon_ms_to_comma_ms,
+    format_time,
+    seconds_to_time_str,
+    time_str_to_seconds,
+)
 
 
 class Test秒からHHMMSSms形式への変換:
-    """audio_processor.format_time — 文字起こしCSVの時刻列に使われる。"""
+    """format_time — 文字起こしCSVの時刻列に使われる。"""
 
     @pytest.mark.parametrize(
         ("seconds", "expected"),
@@ -39,30 +42,30 @@ class Test秒からHHMMSSms形式への変換:
 
 
 class Testコロン区切りミリ秒からSRT形式への変換:
-    """app._colon_ms_to_comma_ms — CSV(HH:MM:SS:ms) を SRT(HH:MM:SS,ms) にする。"""
+    """CSV(HH:MM:SS:ms) を SRT(HH:MM:SS,ms) にする。"""
 
     def test_コロン区切りのミリ秒がカンマ区切りに変換される(self):
-        assert _colon_ms_to_comma_ms("00:01:02:345") == "00:01:02,345"
+        assert colon_ms_to_comma_ms("00:01:02:345") == "00:01:02,345"
 
     def test_時と分と秒がゼロ埋めされる(self):
-        assert _colon_ms_to_comma_ms("1:02:03.500") == "01:02:03,500"
+        assert colon_ms_to_comma_ms("1:02:03.500") == "01:02:03,500"
 
     def test_すでにカンマ区切りならそのまま返される(self):
-        assert _colon_ms_to_comma_ms("00:01:02,345") == "00:01:02,345"
+        assert colon_ms_to_comma_ms("00:01:02,345") == "00:01:02,345"
 
     def test_空文字は空文字のまま返される(self):
-        assert _colon_ms_to_comma_ms("") == ""
+        assert colon_ms_to_comma_ms("") == ""
 
     def test_想定外の書式はそのまま返される(self):
-        assert _colon_ms_to_comma_ms("不正な時刻") == "不正な時刻"
+        assert colon_ms_to_comma_ms("不正な時刻") == "不正な時刻"
 
     def test_コロンが3つ以上ある場合は最後のコロンだけがカンマになる(self):
-        assert _colon_ms_to_comma_ms("00:00:01:02:345") == "00:00:01:02,345"
+        assert colon_ms_to_comma_ms("00:00:01:02:345") == "00:00:01:02,345"
 
     def test_ミリ秒が3桁未満のときは前ゼロ埋めされる(self):
         # 現仕様の記録: "5" は 500ms ではなく 005ms として解釈される。
         # 呼び出し元の CSV は常に3桁で出力するため実害は出ていない。
-        assert _colon_ms_to_comma_ms("00:00:01:5") == "00:00:01,005"
+        assert colon_ms_to_comma_ms("00:00:01:5") == "00:00:01,005"
 
 
 class Test字幕時刻文字列と秒の相互変換:

@@ -19,6 +19,12 @@ os.environ["HF_HUB_OFFLINE"] = "1"  # [OPTIMIZED]
 
 from speaker_identification import SpeakerIdentifier
 from audio_processor import AudioProcessor, create_transcript_csv_path
+from src.config import (
+    DEFAULT_DIARIZATION_MODEL,
+    DEFAULT_EMBEDDING_MODEL,
+    DEFAULT_SPEAKER_THRESHOLD,
+    DEFAULT_WHISPER_MODEL,
+)
 
 # ロギング設定
 logging.basicConfig(
@@ -119,7 +125,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--threshold",
         type=float,
-        default=0.5,
+        default=DEFAULT_SPEAKER_THRESHOLD,
         help="話者一致判定のしきい値。小さいほど厳格（デフォルト: 0.5）",
     )
     parser.add_argument(
@@ -129,13 +135,13 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--embedding_model",
-        default="pyannote/embedding",
+        default=DEFAULT_EMBEDDING_MODEL,
         help="話者照合に使用するモデル名",
     )
     parser.add_argument(
         "--mlx_model",
         type=str,
-        default="mlx-community/whisper-large-v3-mlx",
+        default=DEFAULT_WHISPER_MODEL,
         help="Whisper モデルID/品質（例: large-v3, medium, small。エンジンに合わせ自動変換）",
     )
     parser.add_argument(
@@ -148,7 +154,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--pyannote_model_id",
         type=str,
-        default="pyannote/speaker-diarization-3.1",
+        default=DEFAULT_DIARIZATION_MODEL,
         help="Pyannote Diarization のモデルID",
     )
     parser.add_argument(

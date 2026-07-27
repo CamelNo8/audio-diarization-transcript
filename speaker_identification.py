@@ -21,9 +21,12 @@ import tempfile
 from typing import Dict, Optional, Tuple
 
 from embedding_cache import EmbeddingCache, get_default_cache
-
-# 登録音声の前後から削るノイズ排除用マージン（秒）
-REGISTRATION_TRIM_SEC = 0.5
+from src.common.audio import extract_audio, probe_duration_sec
+from src.config import (
+    DEFAULT_SPEAKER_THRESHOLD,
+    REGISTRATION_MIN_REMAINING_SEC,
+    REGISTRATION_TRIM_SEC,
+)
 
 # 埋め込みキャッシュのスキーマ版。register_speaker の前処理（トリミング量・
 # 正規化方法など）を変えたらここを上げると旧キャッシュと分離される。
@@ -37,7 +40,7 @@ class SpeakerIdentifier:
         self,
         model_name: str,
         hf_token: str,
-        threshold: float = 0.5,
+        threshold: float = DEFAULT_SPEAKER_THRESHOLD,
         cache: Optional[EmbeddingCache] = None,
     ):
         self.model_name = model_name
@@ -106,9 +109,9 @@ class SpeakerIdentifier:
 
         音声が短すぎてトリミングできない場合は None を返し、呼び出し元は元音声をそのまま使う。
         """
-        duration = self._probe_duration_sec(audio_path)
+        duration = probe_duration_sec(audio_path)
         trim = REGISTRATION_TRIM_SEC
-        min_remaining = 0.5  # トリム後に残したい最低長
+        min_remaining = REGISTRATION_MIN_REMAINING_SEC
 
         if duration is None:
             logging.warning(
@@ -128,21 +131,7 @@ class SpeakerIdentifier:
         tmp_path = Path(tmp_path_str)
 
         try:
-            subprocess.run(
-                [
-                    "ffmpeg", "-nostdin", "-loglevel", "error",
-                    "-ss", f"{trim:.3f}",
-                    "-to", f"{end_time:.3f}",
-                    "-i", str(audio_path),
-                    "-vn", "-acodec", "pcm_s16le",
-                    "-ar", "16000", "-ac", "1", "-y",
-                    str(tmp_path),
-                ],
-                check=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
+            extract_audio(audio_path, tmp_path, start=trim, end=end_time)
         except subprocess.CalledProcessError as e:
             logging.warning(
                 f"登録音声のトリミングに失敗したため元音声を使用します ({audio_path}): {e.stderr}"
@@ -155,26 +144,6 @@ class SpeakerIdentifier:
             return None
 
         return tmp_path
-
-    @staticmethod
-    def _probe_duration_sec(audio_path: Path) -> Optional[float]:
-        """ffprobe で音声長（秒）を取得する。失敗時は None。"""
-        try:
-            result = subprocess.run(
-                [
-                    "ffprobe", "-v", "error",
-                    "-show_entries", "format=duration",
-                    "-of", "default=noprint_wrappers=1:nokey=1",
-                    str(audio_path),
-                ],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-            return float(result.stdout.strip())
-        except (subprocess.CalledProcessError, ValueError, FileNotFoundError) as e:
-            logging.warning(f"ffprobe failed for {audio_path}: {e}")
-            return None
 
     def get_embedding_from_waveform(self, waveform: torch.Tensor, sample_rate: int) -> np.ndarray:
         """Pyannoteから直接切り出した波形データから特徴量を抽出する"""

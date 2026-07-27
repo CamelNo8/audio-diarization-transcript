@@ -5,16 +5,15 @@ voice_databases/<DB名>/<話者名>.<ext> の構造で永続管理する。
 from __future__ import annotations
 
 import os
-import re
 import shutil
 from pathlib import Path
 from typing import List, Dict, Optional
 
+from src.config import DEFAULT_VOICE_DB_ROOT, INVALID_NAME_CHARS
+
 SUPPORTED_AUDIO_EXTENSIONS = {
     ".wav", ".mp3", ".m4a", ".flac", ".mp4", ".mov", ".ogg", ".opus", ".aac", ".wma",
 }
-
-_INVALID_NAME_CHARS = set('/\\:*?"<>|')
 
 
 def get_root() -> Path:
@@ -23,7 +22,7 @@ def get_root() -> Path:
     if env:
         root = Path(env).expanduser().resolve()
     else:
-        root = Path(__file__).resolve().parent / "voice_databases"
+        root = DEFAULT_VOICE_DB_ROOT
     root.mkdir(parents=True, exist_ok=True)
     return root
 
@@ -35,7 +34,7 @@ def sanitize_name(raw: str) -> Optional[str]:
         return None
     if name in (".", ".."):
         return None
-    if any(c in _INVALID_NAME_CHARS for c in name):
+    if any(c in INVALID_NAME_CHARS for c in name):
         return None
     return name
 

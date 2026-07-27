@@ -30,20 +30,13 @@ import os
 
 from speaker_identification import SpeakerIdentifier
 import transcription_backend
+from src.common.audio import extract_audio
+from src.common.timecode import format_time
+from src.config import DEFAULT_SEPARATOR_MODEL, INVALID_NAME_CHARS
 
 # Hugging Face トークンに関するFutureWarningを抑制
 warnings.filterwarnings("ignore", category=FutureWarning, module="huggingface_hub")
 
-
-def format_time(seconds: float) -> str:
-    """秒数を HH:MM:SS:ms 形式（ミリ秒は3桁）に丸めて変換します。"""
-    if seconds < 0:
-        return "00:00:00:000"
-    total_ms = int(round(seconds * 1000))
-    hours, remainder_ms = divmod(total_ms, 3600 * 1000)
-    minutes, remainder_ms = divmod(remainder_ms, 60 * 1000)
-    secs, millis = divmod(remainder_ms, 1000)
-    return f"{hours:02}:{minutes:02}:{secs:02}:{millis:03}"
 
 def create_transcript_csv_path(audio_file_path: Path) -> Path:
     """指定された音声ファイルパスから、出力CSVファイルのPathを生成します。"""
@@ -178,15 +171,8 @@ class AudioProcessor:
 
         logging.info(f"Converting audio to temporary WAV format: {self.temp_wav_path}")
         try:
-            subprocess.run(
-                [
-                    "ffmpeg", "-i", str(self.audio_file),
-                    "-vn", "-acodec", "pcm_s16le",
-                    "-ar", "16000", "-ac", "1", "-y",
-                    str(self.temp_wav_path)
-                ],
-                check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True
-            )
+            # quiet=False: 変換失敗時の原因を stderr にそのまま残すため
+            extract_audio(self.audio_file, self.temp_wav_path, quiet=False)
             logging.info("Audio conversion successful.")
         except subprocess.CalledProcessError as e:
             logging.critical(f"FFmpeg conversion failed: {e.stderr}")
@@ -194,10 +180,6 @@ class AudioProcessor:
 
         if self.denoise:
             self._extract_vocals_inplace()
-
-    # audio-separator のデフォルト分離モデル
-    # （HuggingFace の karaokenerds/all-uvr-models から取得）
-    DEFAULT_SEPARATOR_MODEL = "Kim_Vocal_2.onnx"
 
     def _extract_vocals_inplace(self) -> None:
         """audio-separator (UVR / MDX / Roformer 系) でボーカルを抽出し、
@@ -207,7 +189,7 @@ class AudioProcessor:
         モデルは HuggingFace 経由でダウンロードされるため、FB CDN が不通でも動作する。
         """
         assert self.temp_wav_path is not None
-        model_name = self.separator_model or self.DEFAULT_SEPARATOR_MODEL
+        model_name = self.separator_model or DEFAULT_SEPARATOR_MODEL
         logging.info(f"audio-separator で背景音を除去中（model={model_name}）...")
 
         try:
@@ -261,14 +243,8 @@ class AudioProcessor:
         os.close(fd2)
         replaced_path = Path(replaced_str)
         try:
-            subprocess.run(
-                [
-                    "ffmpeg", "-y", "-i", str(vocals_path),
-                    "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1",
-                    str(replaced_path),
-                ],
-                check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
-            )
+            # quiet=False: 変換失敗時の原因を stderr にそのまま残すため
+            extract_audio(vocals_path, replaced_path, quiet=False)
         except subprocess.CalledProcessError as e:
             logging.warning(f"ボーカル出力の 16kHz 変換に失敗。元音声で続行します。\n{e.stderr}")
             shutil.rmtree(outdir, ignore_errors=True)
@@ -619,20 +595,11 @@ class AudioProcessor:
             clip_filename = f"clip_{cluster_id}.wav"
             clip_path = output_dir / clip_filename
             try:
-                subprocess.run(
-                    [
-                        "ffmpeg", "-nostdin", "-loglevel", "error",
-                        "-ss", f"{segment.start:.3f}",
-                        "-to", f"{segment.end:.3f}",
-                        "-i", str(self.temp_wav_path),
-                        "-vn", "-acodec", "pcm_s16le",
-                        "-ar", "16000", "-ac", "1", "-y",
-                        str(clip_path),
-                    ],
-                    check=True,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.PIPE,
-                    text=True,
+                extract_audio(
+                    self.temp_wav_path,
+                    clip_path,
+                    start=segment.start,
+                    end=segment.end,
                 )
             except subprocess.CalledProcessError as e:
                 logging.warning(f"クラスタ {cluster_id} の音声切り出し失敗: {e.stderr}")
@@ -652,8 +619,6 @@ class AudioProcessor:
     # ------------------------------------------------------------------
     # Unknown 話者の対話的登録
     # ------------------------------------------------------------------
-
-    _INVALID_NAME_CHARS = set('/\\:*?"<>|')
 
     def _resolve_unknown_speakers_interactively(self) -> None:
         """speaker_mapping のうち Unknown_NN として残っているクラスタについて、
@@ -749,20 +714,11 @@ class AudioProcessor:
         os.close(fd)
         tmp_path = Path(tmp_str)
         try:
-            subprocess.run(
-                [
-                    "ffmpeg", "-nostdin", "-loglevel", "error",
-                    "-ss", f"{segment.start:.3f}",
-                    "-to", f"{segment.end:.3f}",
-                    "-i", str(self.temp_wav_path),
-                    "-vn", "-acodec", "pcm_s16le",
-                    "-ar", "16000", "-ac", "1", "-y",
-                    str(tmp_path),
-                ],
-                check=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
-                text=True,
+            extract_audio(
+                self.temp_wav_path,
+                tmp_path,
+                start=segment.start,
+                end=segment.end,
             )
         except subprocess.CalledProcessError as e:
             logging.warning(f"代表音声の切り出しに失敗: {e.stderr}")
@@ -790,7 +746,7 @@ class AudioProcessor:
         name = raw.strip()
         if not name:
             return None
-        if any(c in self._INVALID_NAME_CHARS for c in name):
+        if any(c in INVALID_NAME_CHARS for c in name):
             return None
         return name
 

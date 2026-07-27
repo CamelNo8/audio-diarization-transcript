@@ -39,13 +39,23 @@ from subtitle_exporter import (
     write_srt_file,
 )
 import voice_database as vdb
+from src.common.audio import extract_audio
+from src.common.csv_io import read_dict_rows, read_rows, write_rows
+from src.common.timecode import colon_ms_to_comma_ms
+from src.config import (
+    CLUSTERS_ROOT,
+    DEFAULT_DIARIZATION_MODEL,
+    DEFAULT_EMBEDDING_MODEL,
+    DEFAULT_SPEAKER_THRESHOLD,
+    DEFAULT_WHISPER_MODEL,
+    PROJECT_ROOT,
+    TEMP_DIR,
+    TEMPLATES_DIR,
+)
 
-BASE_DIR = Path(__file__).resolve().parent
-TEMP_DIR = BASE_DIR / "temp"
+BASE_DIR = PROJECT_ROOT
 TEMP_DIR.mkdir(exist_ok=True)
-CLUSTERS_ROOT = TEMP_DIR / "clusters"
 CLUSTERS_ROOT.mkdir(exist_ok=True)
-TEMPLATES_DIR = BASE_DIR / "templates"
 
 # job_id -> job state (in-memory cache; persisted to job.json on disk)
 _JOBS: Dict[str, Dict[str, Any]] = {}
@@ -58,21 +68,6 @@ app = FastAPI(title="音声→字幕 統合アプリ")
 # ===================================================================
 # Helper: 文字起こしCSV (HH:MM:SS:ms) → SRT
 # ===================================================================
-def _colon_ms_to_comma_ms(t: str) -> str:
-    if not t:
-        return ""
-    if "," in t:
-        return t
-    m = re.match(r"^(\d{1,2}):(\d{2}):(\d{2})[:.,](\d{1,3})$", t)
-    if m:
-        h, mi, s, ms = m.groups()
-        return f"{int(h):02d}:{int(mi):02d}:{int(s):02d},{int(ms):03d}"
-    if t.count(":") >= 3:
-        head, _, tail = t.rpartition(":")
-        return f"{head},{tail}"
-    return t
-
-
 def _csv_to_srt_with_speaker(csv_path: Path, srt_path: Path) -> int:
     """Step 1 の文字起こしCSVから speaker prefix 付きSRTを生成する。
 
@@ -84,18 +79,16 @@ def _csv_to_srt_with_speaker(csv_path: Path, srt_path: Path) -> int:
         return 0
     blocks = []
     idx = 1
-    with open(csv_path, encoding="utf-8-sig", newline="") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            start = _colon_ms_to_comma_ms((row.get("start") or "").strip())
-            end = _colon_ms_to_comma_ms((row.get("end") or "").strip())
-            body = (row.get("text") or "").strip()
-            speaker = (row.get("speaker") or "").strip()
-            if not start or not end or not body:
-                continue
-            line = f"[{speaker}] {body}" if speaker else body
-            blocks.append(f"{idx}\n{start} --> {end}\n{line}\n")
-            idx += 1
+    for row in read_dict_rows(csv_path):
+        start = colon_ms_to_comma_ms((row.get("start") or "").strip())
+        end = colon_ms_to_comma_ms((row.get("end") or "").strip())
+        body = (row.get("text") or "").strip()
+        speaker = (row.get("speaker") or "").strip()
+        if not start or not end or not body:
+            continue
+        line = f"[{speaker}] {body}" if speaker else body
+        blocks.append(f"{idx}\n{start} --> {end}\n{line}\n")
+        idx += 1
     srt_path.parent.mkdir(parents=True, exist_ok=True)
     srt_path.write_text("\n".join(blocks), encoding="utf-8")
     return idx - 1
@@ -202,9 +195,7 @@ def _relabel_csv(csv_path: Path, mapping: Dict[str, Tuple[str, Optional[float]]]
     """
     if not mapping or not csv_path.exists():
         return 0
-    with open(csv_path, encoding="utf-8-sig", newline="") as f:
-        reader = csv.reader(f)
-        rows = list(reader)
+    rows = read_rows(csv_path)
     if not rows:
         return 0
     header = rows[0]
@@ -222,9 +213,7 @@ def _relabel_csv(csv_path: Path, mapping: Dict[str, Tuple[str, Optional[float]]]
             if dist_idx >= 0 and dist_idx < len(row):
                 row[dist_idx] = f"{new_dist:.6f}" if new_dist is not None else ""
             count += 1
-    with open(csv_path, "w", encoding="utf-8-sig", newline="") as f:
-        writer = csv.writer(f, quoting=csv.QUOTE_ALL)
-        writer.writerows(rows)
+    write_rows(csv_path, rows)
     return count
 
 
@@ -257,22 +246,7 @@ def _crop_audio_file(
     to_wav16k=True で 16kHz mono WAV に再エンコード（声紋用）、
     False なら元コーデックを尊重しつつ dst の拡張子に従う。
     """
-    cmd = ["ffmpeg", "-nostdin", "-loglevel", "error"]
-    if start is not None and start > 0:
-        cmd += ["-ss", f"{start:.3f}"]
-    if end is not None:
-        cmd += ["-to", f"{end:.3f}"]
-    cmd += ["-i", str(src), "-vn"]
-    if to_wav16k:
-        cmd += ["-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1"]
-    cmd += ["-y", str(dst)]
-    subprocess.run(
-        cmd,
-        check=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
+    extract_audio(src, dst, start=start, end=end, to_wav16k=to_wav16k)
 
 
 # ===================================================================
@@ -296,14 +270,14 @@ async def process_transcription(
     db_existing_name: str = Form(""),
     db_new_name: str = Form(""),
     output_srt_name: str = Form("transcription.srt"),
-    threshold: float = Form(0.5),
+    threshold: float = Form(DEFAULT_SPEAKER_THRESHOLD),
     num_speakers: str = Form(""),
-    embedding_model: str = Form("pyannote/embedding"),
-    mlx_model: str = Form("mlx-community/whisper-large-v3-mlx"),
+    embedding_model: str = Form(DEFAULT_EMBEDDING_MODEL),
+    mlx_model: str = Form(DEFAULT_WHISPER_MODEL),
     whisper_backend: str = Form("auto"),  # "auto" / "mlx" / "faster"
     whisper_quality: str = Form(""),  # "large-v3" / "medium" / "small" / "__custom__"
     whisper_custom_model: str = Form(""),
-    pyannote_model_id: str = Form("pyannote/speaker-diarization-3.1"),
+    pyannote_model_id: str = Form(DEFAULT_DIARIZATION_MODEL),
     hf_token_override: str = Form(""),
     denoise_mode: str = Form("off"),
 ):
@@ -946,9 +920,9 @@ async def unknowns_label(
         return _render_error(request, "Hugging Face Token が設定されていません。")
     try:
         identifier = get_cached_speaker_identifier(
-            model_name=job.get("embedding_model", "pyannote/embedding"),
+            model_name=job.get("embedding_model", DEFAULT_EMBEDDING_MODEL),
             hf_token=hf_token,
-            threshold=float(job.get("threshold", 0.5)),
+            threshold=float(job.get("threshold", DEFAULT_SPEAKER_THRESHOLD)),
         )
         for name, path in collect_registry_files(db_dir).items():
             identifier.register_speaker(name, path)

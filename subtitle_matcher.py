@@ -15,6 +15,10 @@ import logging
 from typing import List, Dict, Any, Tuple, Set
 import sys  # コマンドライン引数のために追加
 
+from src.common.csv_io import read_dict_rows
+from src.common.timecode import seconds_to_time_str, time_str_to_seconds
+from src.config import NGRAM_MAX_N, SENTENCE_EMBEDDING_MODEL, SIMILAR_VECTOR_TOP_K
+
 try:
     faiss.omp_set_num_threads(1)
 except Exception:
@@ -39,17 +43,15 @@ def load_scripts_from_csv(filename: str) -> List[Dict[str, Any]]:
     scripts = []
     script_id = 0
     try:
-        with open(filename, mode='r', encoding='utf-8-sig') as csvfile:
-            reader = csv.DictReader(csvfile)
-            for row in reader:
-                if row.get('type') == 'dialogue':
-                    dialogue_text = row.get('contents', '').replace('心の声', '')
-                    scripts.append({
-                        "id": script_id,
-                        "speaker": row.get('speaker', ''),
-                        "dialogue": dialogue_text
-                    })
-                    script_id += 1
+        for row in read_dict_rows(filename):
+            if row.get('type') == 'dialogue':
+                dialogue_text = row.get('contents', '').replace('心の声', '')
+                scripts.append({
+                    "id": script_id,
+                    "speaker": row.get('speaker', ''),
+                    "dialogue": dialogue_text
+                })
+                script_id += 1
         print(f"'{filename}' から {len(scripts)} 件の台詞データを読み込みました。")
     except FileNotFoundError:
         print(f"エラー: ファイル '{filename}' が見つかりません。")
@@ -139,34 +141,6 @@ def load_stt_from_srt(filename: str) -> List[Dict[str, Any]]:
 # 2. テキスト前処理 & n-gram生成
 # ==============================================================================
 
-def time_str_to_seconds(time_str: str) -> float:
-    """
-    時間文字列 (HH:MM:SS,ms) を秒に変換する。
-    """
-    try:
-        parts = time_str.replace(',', '.').split(':')
-        return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
-    except (ValueError, IndexError):
-        # 不正な形式や空文字の場合は 0.0 を返す
-        return 0.0
-
-def seconds_to_time_str(seconds: float) -> str:
-    """
-    秒を時間文字列 (HH:MM:SS,ms) に変換する。
-    """
-    if seconds < 0:
-        seconds = 0
-    try:
-        millis = int((seconds * 1000) % 1000)
-        total_seconds = int(seconds)
-        sec = total_seconds % 60
-        total_minutes = total_seconds // 60
-        mins = total_minutes % 60
-        hours = total_minutes // 60
-        return f"{hours:02d}:{mins:02d}:{sec:02d},{millis:03d}"
-    except Exception:
-        return "00:00:00,000"
-
 def normalize_text(s: str) -> str:
     """
     テキストを正規化して比較しやすくする。
@@ -211,7 +185,7 @@ def create_ngrams(data_list: List[Dict], text_key: str, max_n: int, has_time: bo
 # 3. ベクトル化 & 類似度検索
 # ==============================================================================
 
-def encode_texts(texts: List[str], model_name: str = 'stsb-xlm-r-multilingual') -> Tuple[Any, np.ndarray]:
+def encode_texts(texts: List[str], model_name: str = SENTENCE_EMBEDDING_MODEL) -> Tuple[Any, np.ndarray]:
     """
     SentenceTransformerモデルを読み込み、テキストリストをベクトルに変換する。
     """
@@ -623,8 +597,8 @@ def run_matching_process(script_file: str, stt_file: str, output_filename: str):
 
     # 2. n-gram生成
     _log("\nn-gramチャンクを生成しています...")
-    script_ngrams = create_ngrams(scripts, text_key="dialogue", max_n=3)
-    stt_ngrams = create_ngrams(stt, text_key="text", max_n=3, has_time=True)
+    script_ngrams = create_ngrams(scripts, text_key="dialogue", max_n=NGRAM_MAX_N)
+    stt_ngrams = create_ngrams(stt, text_key="text", max_n=NGRAM_MAX_N, has_time=True)
     _log(f"台本n-gram: {len(script_ngrams)}個、音声認識n-gram: {len(stt_ngrams)}個を生成しました。")
 
     # 3. テキストのベクトル化（モデル参照を残さず MPS リソースを早めに解放）
@@ -644,7 +618,7 @@ def run_matching_process(script_file: str, stt_file: str, output_filename: str):
 
     # 4. 類似度検索
     _log("[run_matching_process] calling find_similar_vectors...")
-    distances, indices = find_similar_vectors(script_embeddings, stt_embeddings, k=10)
+    distances, indices = find_similar_vectors(script_embeddings, stt_embeddings, k=SIMILAR_VECTOR_TOP_K)
     _log(f"[run_matching_process] find_similar_vectors returned: distances={distances.shape}, indices={indices.shape}")
 
     # 5. 候補ペア生成と最適化

@@ -76,7 +76,8 @@ pythonpath = ["."]
 [tool.ruff]
 line-length = 88
 target-version = "py310"
-exclude = [".venv", "temp", "voice_databases", "embedding_cache"]
+# .claude/worktrees には過去のブランチのコピーが入っているため対象外
+exclude = [".venv", ".claude", "temp", "voice_databases", "embedding_cache"]
 
 [tool.ruff.lint]
 # isort (I) は有効化しない。app.py は import 前に HF_HUB_OFFLINE を設定しており、

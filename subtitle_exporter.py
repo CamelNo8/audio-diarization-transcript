@@ -1,6 +1,7 @@
-import csv
 import argparse
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional
+
+from src.common.csv_io import read_dict_rows
 
 def load_subtitle_data(input_csv_path: str) -> List[Dict[str, str]]:
     """
@@ -17,31 +18,27 @@ def load_subtitle_data(input_csv_path: str) -> List[Dict[str, str]]:
     required_columns = ["start_time", "end_time", "speaker", "subtitle_text"]
 
     try:
-        with open(input_csv_path, mode='r', encoding='utf-8-sig') as csvfile:
-            # csv.DictReaderを使用してCSVを辞書として読み込む
-            reader = csv.DictReader(csvfile)
+        for i, row in enumerate(read_dict_rows(input_csv_path)):
+            # 必要な列が存在するかチェック
+            if not all(col in row for col in required_columns):
+                print(f"警告: {i+1}行目に必要な列が不足しています。スキップします。")
+                continue
 
-            for i, row in enumerate(reader):
-                # 必要な列が存在するかチェック
-                if not all(col in row for col in required_columns):
-                    print(f"警告: {i+1}行目に必要な列が不足しています。スキップします。")
-                    continue
+            # 必要な列のデータが空でないかチェック
+            if not all(row[col] for col in required_columns):
+                print(f"警告: {i+1}行目に空のデータがあります。スキップします。 (speakerは空でも可)")
+                # speaker は空欄を許可する場合（仕様には明記されていないが、空の場合もありうるため）
+                if not all(row[col] for col in ["start_time", "end_time", "subtitle_text"]):
+                     print(f"警告: {i+1}行目に必須データ（時間またはテキスト）がありません。スキップします。")
+                     continue
 
-                # 必要な列のデータが空でないかチェック
-                if not all(row[col] for col in required_columns):
-                    print(f"警告: {i+1}行目に空のデータがあります。スキップします。 (speakerは空でも可)")
-                    # speaker は空欄を許可する場合（仕様には明記されていないが、空の場合もありうるため）
-                    if not all(row[col] for col in ["start_time", "end_time", "subtitle_text"]):
-                         print(f"警告: {i+1}行目に必須データ（時間またはテキスト）がありません。スキップします。")
-                         continue
-
-                # 必要なデータのみを抽出してリストに追加
-                subtitle_data.append({
-                    "start_time": row["start_time"],
-                    "end_time": row["end_time"],
-                    "speaker": row["speaker"],
-                    "subtitle_text": row["subtitle_text"]
-                })
+            # 必要なデータのみを抽出してリストに追加
+            subtitle_data.append({
+                "start_time": row["start_time"],
+                "end_time": row["end_time"],
+                "speaker": row["speaker"],
+                "subtitle_text": row["subtitle_text"]
+            })
 
     except FileNotFoundError:
         print(f"エラー: 入力ファイル '{input_csv_path}' が見つかりません。")
