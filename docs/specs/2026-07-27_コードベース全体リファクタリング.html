@@ -1,0 +1,378 @@
+<meta charset="utf-8">
+<title>コードベース全体リファクタリング 仕様書</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+         line-height: 1.8; max-width: 1000px; margin: 0 auto; padding: 2rem 1.2rem; }
+  h1 { border-bottom: 3px solid #4a7; padding-bottom: .4rem; }
+  h2 { border-left: 6px solid #4a7; padding-left: .6rem; margin-top: 2.4rem; }
+  h3 { margin-top: 1.6rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: .94rem; }
+  th, td { border: 1px solid #8884; padding: .45rem .6rem; text-align: left; vertical-align: top; }
+  th { background: #4a71; }
+  code, pre { font-family: "SF Mono", Menlo, monospace; font-size: .88rem; }
+  pre { background: #8881; padding: .9rem; overflow-x: auto; border-radius: 6px; }
+  .status { display: inline-block; padding: .1rem .55rem; border-radius: 4px;
+            font-size: .8rem; font-weight: 700; border: 1px solid currentColor; }
+  .s-todo { color: #a60; }
+  .s-doing { color: #06a; }
+  .s-done { color: #070; }
+  .meta { background: #4a71; padding: .8rem 1rem; border-radius: 6px; }
+  .warn { border-left: 5px solid #c62; background: #c621; padding: .7rem 1rem; border-radius: 4px; }
+  ul.todo { list-style: none; padding-left: .4rem; }
+  ul.todo li { margin: .35rem 0; }
+  .phase { margin-top: 1.4rem; }
+</style>
+
+<h1>コードベース全体リファクタリング 仕様書</h1>
+
+<div class="meta">
+  <strong>ステータス:</strong> <span class="status s-doing">進行中</span>（Phase 0 完了・Phase 1 承認待ち）<br>
+  <strong>最終更新日:</strong> 2026-07-27<br>
+  <strong>対象リポジトリ:</strong> <code>audio-diarization-transcript</code>（ブランチ <code>main</code>）
+</div>
+
+<h2>1. 背景・目的</h2>
+
+<p>
+コーディング規約（<code>~/.claude/coding-standard.md</code>）を刷新したことにともない、既存コードを規約に整合させる。
+現状は全モジュールがリポジトリ直下にフラット配置され、1ファイル1000行超・1関数200行超のものがあり、
+テストとリンタが実質存在しない。レビュー可能な粒度に分割し、以後の機能追加を規約どおり（TDD/DDD）に進められる状態にすることが目的。
+</p>
+
+<h3>現状と規約のギャップ</h3>
+<table>
+  <tr><th>規約</th><th>基準</th><th>現状</th></tr>
+  <tr><td>4.1 ファイル行数</td><td>400行</td><td><code>app.py</code> 1028 / <code>audio_processor.py</code> 915 / <code>subtitle_matcher.py</code> 701</td></tr>
+  <tr><td>4.1 関数行数</td><td>50行</td><td><code>process_and_save_to_csv</code> 約208 / <code>export_results_to_csv</code> 約210 / <code>/process/transcription</code> 約196 ほか多数</td></tr>
+  <tr><td>4.3 ファイル配置</td><td><code>src/&lt;機能&gt;/</code> + <code>common/</code> + <code>config.py</code></td><td>全12モジュールがリポジトリ直下にフラット配置</td></tr>
+  <tr><td>4.5 マジックナンバー</td><td><code>config.py</code> へ集約</td><td>閾値・モデル名・パスが各モジュールに散在</td></tr>
+  <tr><td>2章 TDD</td><td>正常系/境界値/異常系</td><td>テスト無し（<code>test_transcript_ms_integer.py</code> は実音声を要する調査スクリプト）</td></tr>
+  <tr><td>8.6 ログ</td><td><code>print</code> を残さない</td><td><code>print()</code> が計88箇所（<code>subtitle_matcher</code> 36 / <code>audio_processor</code> 18 ほか）</td></tr>
+  <tr><td>11.2 リンタ</td><td>ruff / black 準拠</td><td>未導入・設定なし</td></tr>
+  <tr><td>3章 DDD</td><td><code>docs/specs/</code></td><td>ディレクトリ自体が無い（本書が第1号）</td></tr>
+</table>
+
+<h2>2. スコープ</h2>
+
+<h3>やること</h3>
+<ul>
+  <li>リポジトリ直下の全 Python モジュールを <code>src/</code> パッケージ構成へ再編（規約4.3）</li>
+  <li>400行超ファイル・50行超関数の分割（規約4.1/4.2）</li>
+  <li>重複ロジック（時刻変換・CSV入出力・ffmpeg 呼び出し）の <code>common/</code> への共通化（規約4.3）</li>
+  <li>マジックナンバー・モデル名・閾値の <code>src/config.py</code> への集約（規約4.5）</li>
+  <li><code>print</code> → ロガーへの置換（出力文言は維持、規約8.6）</li>
+  <li>リファクタ前の振る舞いを固定する<strong>特性テスト</strong>の整備（pytest 導入）</li>
+  <li>ruff / black 設定の追加と適用（規約11.2）</li>
+  <li>デッドコード・未使用 import の削除（規約4.6）</li>
+  <li>README・<code>pyproject.toml</code>・spark スクリプトの実態への追随（規約3.2）</li>
+</ul>
+
+<h3>やらないこと</h3>
+<ul>
+  <li><strong>機能追加・仕様変更・振る舞いの変更</strong>（規約2.1 Refactor 段階の原則）。
+      既存のバグや設計上の疑問点を見つけた場合は<strong>直さずに報告</strong>し、別タスクとして提案する。</li>
+  <li>アルゴリズム・精度・性能のチューニング</li>
+  <li>Web UI の見た目・操作フローの変更（<code>templates/</code> の HTML は原則そのまま。参照パス変更が必要な場合のみ最小修正）</li>
+  <li>依存パッケージのバージョン更新（dev 依存の追加を除く）</li>
+  <li>ルートに置かれた作業データ（<code>*.wav</code> / <code>*.csv</code>）の整理 — git 管理外のため対象外</li>
+</ul>
+
+<h2>3. 目標とするディレクトリ構成</h2>
+
+<pre>audio-diarization-transcript/
+├── app.py                      # 薄いエントリポイント（uvicorn 起動 / `app` を再エクスポート）
+├── main.py                     # 薄い CLI エントリポイント
+├── src/
+│   ├── config.py               # 定数・閾値・モデル名・パス
+│   ├── common/
+│   │   ├── logging.py          # ロガー設定
+│   │   ├── timecode.py         # 時刻文字列⇔秒 の相互変換（現 3 モジュールに重複）
+│   │   ├── csv_io.py           # CSV 読み書きの共通処理
+│   │   └── audio.py            # ffmpeg 呼び出し（切り出し・16kHz mono 変換・長さ取得）
+│   ├── diarization/
+│   │   ├── processor.py        # AudioProcessor 中核（準備→話者分離→文字起こし→CSV）
+│   │   ├── pipeline.py         # pyannote パイプライン読込・デバイス選択・torch.load 互換
+│   │   ├── vocals.py           # audio-separator による背景音除去
+│   │   ├── clusters.py         # 未知話者クラスタの抽出・永続化・再マッピング
+│   │   ├── interactive.py      # CLI 対話による未知話者の解決
+│   │   ├── speaker_identifier.py
+│   │   ├── embedding_cache.py
+│   │   └── registry.py         # 登録音声の収集・SpeakerIdentifier キャッシュ（現 main.py 由来）
+│   ├── transcription/
+│   │   ├── backend.py          # 公開 API（transcribe_full / select_whisper_device）
+│   │   ├── model_ids.py        # モデルID変換（mlx / faster-whisper / HF）
+│   │   ├── mlx.py
+│   │   ├── faster_whisper.py
+│   │   └── transformers_backend.py
+│   ├── subtitle/
+│   │   ├── loader.py           # 台本CSV / SRT 読み込み
+│   │   ├── ngram.py            # 正規化・N-gram 生成
+│   │   ├── embedding.py        # 文埋め込み・faiss 近傍探索
+│   │   ├── alignment.py        # 候補ペア生成・WLIS・結果整形
+│   │   ├── report.py           # 結果 CSV 出力・サマリ表示
+│   │   ├── matcher.py          # run_matching_process（オーケストレーション）
+│   │   └── exporter.py         # 字幕 SRT 出力（現 subtitle_exporter.py）
+│   ├── voice_db/
+│   │   └── registry.py         # 声紋データベース操作（現 voice_database.py）
+│   ├── cli/
+│   │   └── runner.py           # 引数解析・CLI 本体（現 main.py 由来）
+│   ├── web/
+│   │   ├── application.py      # FastAPI 生成・テンプレート設定
+│   │   ├── jobs.py             # ジョブID発行・保存・読込・CSV再ラベル
+│   │   ├── converters.py       # 文字起こしCSV→SRT / テキスト→台本CSV
+│   │   └── routes/
+│   │       ├── pages.py        # `/` `/databases` `/unknowns/{job_id}`
+│   │       ├── transcription.py # `/process/transcription`
+│   │       ├── matching.py     # `/process/matching`
+│   │       ├── generation.py   # `/process/generation` `/download/{filename}`
+│   │       ├── databases.py    # `/api/databases/*`
+│   │       └── unknowns.py     # 未知話者ラベリング API
+│   └── spark/
+│       ├── server.py           # 現 spark_server.py
+│       └── client.py           # 現 spark_client.py
+├── tools/
+│   └── check_transcript_ms_integer.py   # 現 test_transcript_ms_integer.py（調査スクリプト）
+├── tests/                      # pytest
+└── docs/specs/                 # 本書
+</pre>
+
+<div class="warn">
+<strong>互換性の要:</strong> Spark サーバ側は <code>spark-up.sh</code> がリポジトリ直下の
+<code>.venv/bin/python app.py</code> を直接起動している。<strong>ルートの <code>app.py</code> / <code>main.py</code> は
+薄いエントリポイントとして必ず残す</strong>。<code>src/spark/server.py</code> へ移す <code>spark_server.py</code> も
+同様に起動方法が変わらないことを確認する（起動コマンドが変わる場合は <code>spark-up.sh</code> と README を同一コミットで更新）。
+</div>
+
+<h3>調査スクリプトの扱い</h3>
+<p>
+<code>test_transcript_ms_integer.py</code> は実音声と <code>mlx_whisper</code> を必要とする調査スクリプトで、
+規約2.7の「使い捨ての調査・探索スクリプト」に該当するため TDD の対象外とする。
+ただし <code>test_</code> 接頭辞のため pytest が収集を試みて import エラーになる。
+<code>tools/check_transcript_ms_integer.py</code> へ移動する（内容は変更しない）。
+</p>
+
+<h2>4. 入出力仕様（不変条件）</h2>
+
+<p>リファクタリング前後で、以下は<strong>一切変わらないこと</strong>を保証する。これがテストの検証対象になる。</p>
+
+<table>
+  <tr><th>対象</th><th>不変とする内容</th></tr>
+  <tr><td>文字起こしCSV</td><td>列（<code>start,end,speaker,text,cosine_distance</code> 等）の並び・時刻書式 <code>HH:MM:SS:mmm</code>・エンコーディング <code>utf-8-sig</code>・クォート方針</td></tr>
+  <tr><td>SRT出力</td><td>ブロック番号の採番、<code>HH:MM:SS,mmm --&gt; HH:MM:SS,mmm</code> 書式、<code>[speaker] text</code> の本文形式</td></tr>
+  <tr><td>台本CSV</td><td>ヘッダ <code>id,scene_id,type,speaker,contents</code>、行分類（scene / dialogue）の判定規則</td></tr>
+  <tr><td>マッチング結果CSV</td><td>列構成・マッチ判定・時刻補間の結果</td></tr>
+  <tr><td>Web API</td><td>全エンドポイントのパス・HTTPメソッド・フォーム項目名・返却テンプレート</td></tr>
+  <tr><td>CLI</td><td><code>main.py</code> のオプション名・既定値・終了コード</td></tr>
+  <tr><td>ファイル配置</td><td><code>temp/</code>、<code>temp/clusters/&lt;job_id&gt;/</code>、<code>voice_databases/</code>、<code>embedding_cache/</code> のパスと構造</td></tr>
+  <tr><td>Spark 連携</td><td><code>spark-up.sh</code> / <code>spark-down.sh</code> / <code>spark-logs.sh</code> の使い方、リモート起動コマンド</td></tr>
+</table>
+
+<h2>5. 処理フロー（作業手順）</h2>
+
+<p>フェーズ単位で <strong>「特性テストを書く → 緑を確認 → 移動・分割 → 再度緑を確認 → 報告・承認」</strong> を回す。
+各フェーズは独立したコミットにする（規約11.1）。</p>
+
+<pre>Phase 0  基盤整備（pytest / ruff / src 骨組み / 純ロジックの特性テスト）
+   ↓
+Phase 1  common/ + config.py の確立（重複の共通化・print→logger）
+   ↓
+Phase 2  字幕マッチング（subtitle_matcher / subtitle_exporter）の分割
+   ↓
+Phase 3  音声処理コア（audio_processor / speaker_identification / transcription_backend）の分割
+   ↓
+Phase 4  Web アプリ層（app.py）の分割
+   ↓
+Phase 5  Spark 連携・エントリポイント・README・リンタ全体適用・最終確認
+</pre>
+
+<p>
+各フェーズの終了時に <strong>(a) pytest 全緑の出力</strong>、<strong>(b) 変更ファイル一覧</strong>、
+<strong>(c) 規約4.1 の残違反箇所</strong> を提示して承認を得る。承認前に次フェーズへ進まない。
+</p>
+
+<h2>6. エラー処理方針</h2>
+
+<ul>
+  <li><strong>本作業では例外の扱いを変更しない。</strong> 既存の <code>except Exception</code> や握りつぶしを見つけても、
+      振る舞いが変わるため直さない（規約2.1 Refactor 段階では振る舞いを変えない）。該当箇所は一覧にして報告し、別タスクとして提案する。</li>
+  <li>例外は移動先モジュールでもそのまま送出させる。捕捉位置を変えない。</li>
+  <li><code>print</code> → ロガー置換は、<strong>出力文言と出力タイミングを維持</strong>する（規約2.7「ログ出力の文言変更など振る舞いに影響しない変更」に準じる）。
+      ログレベルは既存の意味に合わせて割り当てる（エラー表示は <code>ERROR</code>、進捗は <code>INFO</code>）。</li>
+  <li>移動にともなう import 失敗・パス解決の失敗は、フェーズ内のスモークテスト（アプリ起動・CLI <code>--help</code>）で検出する。</li>
+</ul>
+
+<h2>7. セキュリティ考慮（規約7章）</h2>
+
+<table>
+  <tr><th>項目</th><th>方針</th></tr>
+  <tr><td>7.1 入力検証</td><td><code>_job_dir()</code> の <code>job_id</code> パストラバーサル検査、DB名・ファイル名の検証、フォーム値のパースは<strong>現在の検証ロジックを保ったまま移設</strong>する。移設が正しいことを異常系テストで固定する（<code>../</code>、絶対パス、空文字を含む）。</td></tr>
+  <tr><td>7.2 秘匿情報</td><td>HF トークンは <code>.env</code> / 環境変数から取得する現行方式を維持。<strong>ソース・ログ・仕様書・コミットに実値を含めない。</strong> <code>.gitignore</code> に <code>*.env</code> があることを確認済み。print→logger 置換時にトークンやパスが新たにログへ出ないことを確認する。</td></tr>
+  <tr><td>7.3 インジェクション</td><td>ffmpeg 呼び出しは現行どおり <code>subprocess.run([...])</code> のリスト形式を維持。<code>shell=True</code> は導入しない。共通化後の <code>common/audio.py</code> でも同じ形式にする。</td></tr>
+  <tr><td>7.4 データ保護</td><td>音声・会話データは個人情報を含みうる。保存先は現行どおり <code>temp/</code>（作業用・git 管理外）と <code>voice_databases/</code>（声紋、git 管理外）に限定し、<strong>本作業で保存先・保存期間・公開範囲を変更しない</strong>。</td></tr>
+  <tr><td>7.5 Web</td><td>テンプレートは Jinja2 の自動エスケープに依存する現行方式を維持。ルート分割時に <code>| safe</code> を新規追加しない。</td></tr>
+  <tr><td>7.6 依存追加</td><td>追加は <strong>dev 依存の3点のみ</strong>：<code>pytest</code>（テスト実行）、<code>httpx</code>（FastAPI TestClient に必要）、<code>ruff</code>（リンタ/フォーマッタ）。いずれも広く使われている標準的なツール。本番依存は増やさない。</td></tr>
+  <tr><td>7.7 ファイル操作</td><td>ファイル移動は <code>git mv</code> を用い、削除は行わない。ワイルドカード削除をしない。</td></tr>
+</table>
+
+<h2>8. テスト計画</h2>
+
+<p>
+<strong>特性テスト（characterization test）</strong>として、リファクタ前の現在の出力を期待値に固定する。
+重いモデル（pyannote / Whisper / SentenceTransformer / audio-separator）とネットワークは規約2.5に従いモックし、
+ロジック層のみを検証する。テスト名は日本語で「何がどうなるか」を書く（規約2.2）。
+</p>
+
+<table>
+  <tr><th>#</th><th>テストファイル</th><th>検証内容（正常系 / 境界値 / 異常系）</th><th>フェーズ</th></tr>
+  <tr><td>1</td><td><code>tests/test_timecode.py</code></td><td>時刻文字列⇔秒の相互変換。正常: <code>00:01:02:345</code>→<code>00:01:02,345</code>。境界: 空文字・0秒・カンマ済み文字列・コロン4つ。異常: 不正書式はそのまま返す現仕様</td><td>0</td></tr>
+  <tr><td>2</td><td><code>tests/test_web_converters.py</code></td><td>CSV→SRT：ブロック採番、start/end/text 欠損行のスキップ、speaker 空欄時の本文形式。TXT→台本CSV：<code>#</code>行/丸括弧行→scene、<code>話者:本文</code>→dialogue、31文字以上の話者名は非分割、BOM 付き入出力</td><td>0</td></tr>
+  <tr><td>3</td><td><code>tests/test_jobs.py</code></td><td>job_id 発行書式、保存→読込の往復、旧フォーマット（<code>csv_filename</code> 欠損）の補完、CSV 再ラベルの置換行数と <code>cosine_distance</code> 更新。<strong>異常: <code>../etc</code> 等の job_id が <code>ValueError</code> になる</strong></td><td>0</td></tr>
+  <tr><td>4</td><td><code>tests/test_voice_db.py</code></td><td>DB 一覧・作成・削除・話者一覧。境界: 空DB・同名DB。異常: 不正なDB名</td><td>0</td></tr>
+  <tr><td>5</td><td><code>tests/test_embedding_cache.py</code></td><td>キャッシュのヒット/ミス、キー生成、破損ファイル時のフォールバック（<code>tmp_path</code> 使用で実ファイル I/O）</td><td>0</td></tr>
+  <tr><td>6</td><td><code>tests/test_subtitle_ngram.py</code></td><td>テキスト正規化、N-gram 生成（<code>max_n</code> 境界、1件・空リスト、時刻付き/なし）</td><td>2</td></tr>
+  <tr><td>7</td><td><code>tests/test_subtitle_alignment.py</code></td><td>候補ペア生成と WLIS（重み付き最長増加部分列）。正常: 単調増加の選択。境界: 空 DataFrame・1件・同スコア。異常: 必要列欠損</td><td>2</td></tr>
+  <tr><td>8</td><td><code>tests/test_subtitle_export.py</code></td><td>マッチ結果 CSV の列構成・行数、SRT 生成の書式と分割規則（<code>subtitle_exporter</code>）</td><td>2</td></tr>
+  <tr><td>9</td><td><code>tests/test_transcription_backend.py</code></td><td>モデルID変換（mlx / faster-whisper / HF の各表記）、バックエンド選択の分岐（Apple Silicon / CUDA 不可 時のフォールバック）。異常: 未知バックエンド名</td><td>3</td></tr>
+  <tr><td>10</td><td><code>tests/test_speaker_identifier.py</code></td><td>埋め込みの正規化、コサイン距離による照合と閾値境界（閾値ちょうど）、Unknown 名の採番連番。モデルはモック</td><td>3</td></tr>
+  <tr><td>11</td><td><code>tests/test_diarization_clusters.py</code></td><td>未知クラスタの永続化構造、再照合後の再マッピング。ファイル I/O は <code>tmp_path</code>、モデルはモック</td><td>3</td></tr>
+  <tr><td>12</td><td><code>tests/test_web_routes.py</code></td><td>FastAPI TestClient による全エンドポイントのスモーク（パス・メソッド・ステータス・テンプレート）。重い処理はモック。異常: 存在しない job_id / DB名でエラーテンプレートが返る</td><td>4</td></tr>
+  <tr><td>13</td><td><code>tests/test_entrypoints.py</code></td><td>ルート <code>app.py</code> から <code>app</code> が import できる、<code>main.py --help</code> が終了コード0、<code>src.spark.server</code> が import できる</td><td>5</td></tr>
+</table>
+
+<h3>フェーズ完了の判定</h3>
+<ul>
+  <li>そのフェーズのテストと、それ以前の全テストが緑（<strong>実行出力を提示する</strong>）</li>
+  <li><code>ruff check</code> / <code>ruff format --check</code> が対象範囲で通る</li>
+  <li>Web アプリが起動し <code>/</code> が 200 を返す（Phase 4 以降）</li>
+</ul>
+
+<div class="warn">
+<strong>検証範囲の限界（自己申告）:</strong> 選択された検証方針は「特性テスト（重いモデルはモック）」であり、
+<strong>実音声を用いた通し実行は本計画に含まれていない</strong>。
+したがって pyannote / Whisper / audio-separator の実推論を経由する経路は、
+import とインターフェースの整合までしか保証されない。実データでの前後比較が必要であれば、Phase 5 の完了条件に追加する。
+</div>
+
+<h2>9. 影響範囲（変更するファイル）</h2>
+
+<table>
+  <tr><th>現在のファイル</th><th>行数</th><th>移動先 / 扱い</th></tr>
+  <tr><td><code>app.py</code></td><td>1028</td><td><code>src/web/</code> 配下へ分割。ルートには薄い起動用エントリポイントを残す</td></tr>
+  <tr><td><code>main.py</code></td><td>240</td><td><code>src/cli/runner.py</code> + <code>src/diarization/registry.py</code>。ルートには薄い CLI エントリポイントを残す</td></tr>
+  <tr><td><code>audio_processor.py</code></td><td>915</td><td><code>src/diarization/</code>（processor / pipeline / vocals / clusters / interactive）へ分割</td></tr>
+  <tr><td><code>speaker_identification.py</code></td><td>239</td><td><code>src/diarization/speaker_identifier.py</code></td></tr>
+  <tr><td><code>embedding_cache.py</code></td><td>126</td><td><code>src/diarization/embedding_cache.py</code></td></tr>
+  <tr><td><code>transcription_backend.py</code></td><td>317</td><td><code>src/transcription/</code> へ分割</td></tr>
+  <tr><td><code>subtitle_matcher.py</code></td><td>701</td><td><code>src/subtitle/</code>（loader / ngram / embedding / alignment / report / matcher）へ分割</td></tr>
+  <tr><td><code>subtitle_exporter.py</code></td><td>166</td><td><code>src/subtitle/exporter.py</code></td></tr>
+  <tr><td><code>voice_database.py</code></td><td>161</td><td><code>src/voice_db/registry.py</code></td></tr>
+  <tr><td><code>spark_server.py</code></td><td>196</td><td><code>src/spark/server.py</code></td></tr>
+  <tr><td><code>spark_client.py</code></td><td>102</td><td><code>src/spark/client.py</code></td></tr>
+  <tr><td><code>test_transcript_ms_integer.py</code></td><td>123</td><td><code>tools/check_transcript_ms_integer.py</code>（内容不変）</td></tr>
+  <tr><td><code>pyproject.toml</code></td><td>—</td><td>dev 依存（pytest / httpx / ruff）、ruff 設定、パッケージ対象の更新</td></tr>
+  <tr><td><code>spark-up.sh</code> ほか</td><td>—</td><td>起動パスが変わる場合のみ更新（原則は不変を維持）</td></tr>
+  <tr><td><code>README.md</code></td><td>—</td><td>構成図・実行手順・テスト実行方法を追記</td></tr>
+  <tr><td><code>templates/**</code></td><td>—</td><td>原則不変（参照パス起因の最小修正のみ）</td></tr>
+  <tr><td>新規</td><td>—</td><td><code>src/config.py</code>, <code>src/common/*</code>, <code>tests/*</code>, <code>docs/specs/*</code></td></tr>
+</table>
+
+<h2>10. ToDo</h2>
+
+<div class="phase">
+<h3>Phase 0 — 基盤整備 <span class="status s-doing">進行中</span>（承認待ち）</h3>
+<ul class="todo">
+  <li>☑ <span class="status s-done">完了</span> <code>pyproject.toml</code> に dev 依存（pytest / httpx / ruff）と ruff 設定（line-length 88）を追加し、インストール</li>
+  <li>☑ <span class="status s-done">完了</span> <code>tests/</code> と <code>src/</code> の骨組み（<code>__init__.py</code>）を作成</li>
+  <li>☑ <span class="status s-done">完了</span> <code>test_transcript_ms_integer.py</code> を <code>tools/check_transcript_ms_integer.py</code> へ <code>git mv</code></li>
+  <li>☑ <span class="status s-done">完了</span> 特性テスト #1〜#5 を作成し、現行コードに対して <strong>109件すべて緑</strong>を確認</li>
+  <li>☐ <span class="status s-doing">進行中</span> フェーズ報告・承認 — 報告済み、クライアントの承認待ち</li>
+</ul>
+
+<p><strong>Phase 0 の実績:</strong></p>
+<table>
+  <tr><th>テストファイル</th><th>件数</th><th>対象</th></tr>
+  <tr><td><code>tests/test_timecode.py</code></td><td>26</td><td>時刻変換3関数（app / audio_processor / subtitle_matcher）</td></tr>
+  <tr><td><code>tests/test_web_converters.py</code></td><td>16</td><td>文字起こしCSV→SRT、テキスト→台本CSV</td></tr>
+  <tr><td><code>tests/test_jobs.py</code></td><td>24</td><td>ジョブ管理・CSV再ラベル・job_id のパストラバーサル検査</td></tr>
+  <tr><td><code>tests/test_voice_db.py</code></td><td>24</td><td>声紋DBの作成/一覧/削除/リネーム・名前検証</td></tr>
+  <tr><td><code>tests/test_embedding_cache.py</code></td><td>19</td><td>埋め込みキャッシュのヒット/ミス・無効化・破損時フォールバック</td></tr>
+  <tr><td colspan="2"><strong>合計 109件 passed</strong>（<code>ruff check tests/</code> も通過）</td><td>—</td></tr>
+</table>
+
+<p><strong>Phase 0 で発見した既存の挙動（本作業では直さない・別タスク候補）:</strong></p>
+<ul>
+  <li><code>_colon_ms_to_comma_ms("00:00:01:5")</code> は <code>00:00:01,005</code> になる（500ms ではなく 5ms 扱い）。
+      呼び出し元の CSV は常に3桁ミリ秒を出力するため実害は出ていない。テストで現仕様として固定済み。</li>
+  <li><code>tools/check_transcript_ms_integer.py</code> に E501（行長超過）が2件。内容不変で移動したため、Phase 5 で対応する。</li>
+</ul>
+</div>
+
+<div class="phase">
+<h3>Phase 1 — common/ と config.py <span class="status s-todo">未着手</span></h3>
+<ul class="todo">
+  <li>☐ <span class="status s-todo">未着手</span> <code>src/config.py</code> を新設し、散在する閾値・モデル名・パス・リトライ回数を集約</li>
+  <li>☐ <span class="status s-todo">未着手</span> <code>src/common/timecode.py</code> — 3モジュールに重複する時刻変換を統合</li>
+  <li>☐ <span class="status s-todo">未着手</span> <code>src/common/csv_io.py</code> / <code>src/common/audio.py</code> — CSV入出力と ffmpeg 呼び出しを共通化</li>
+  <li>☐ <span class="status s-todo">未着手</span> <code>src/common/logging.py</code> を追加し、<code>print</code> 88箇所をロガーへ置換（文言は維持）</li>
+  <li>☐ <span class="status s-todo">未着手</span> 移動元の重複コードを削除（規約4.3「元の場所には残さない」）</li>
+  <li>☐ <span class="status s-todo">未着手</span> テスト全緑を確認・フェーズ報告・承認</li>
+</ul>
+</div>
+
+<div class="phase">
+<h3>Phase 2 — 字幕マッチングの分割 <span class="status s-todo">未着手</span></h3>
+<ul class="todo">
+  <li>☐ <span class="status s-todo">未着手</span> 特性テスト #6〜#8 を作成し、現行コードで緑を確認</li>
+  <li>☐ <span class="status s-todo">未着手</span> <code>subtitle_matcher.py</code> を <code>src/subtitle/</code> の6モジュールへ分割</li>
+  <li>☐ <span class="status s-todo">未着手</span> <code>export_results_to_csv</code>（約210行）と <code>display_summary</code> を50行以下に分解</li>
+  <li>☐ <span class="status s-todo">未着手</span> <code>subtitle_exporter.py</code> を <code>src/subtitle/exporter.py</code> へ移設</li>
+  <li>☐ <span class="status s-todo">未着手</span> テスト全緑を確認・フェーズ報告・承認</li>
+</ul>
+</div>
+
+<div class="phase">
+<h3>Phase 3 — 音声処理コアの分割 <span class="status s-todo">未着手</span></h3>
+<ul class="todo">
+  <li>☐ <span class="status s-todo">未着手</span> 特性テスト #9〜#11 を作成し、現行コードで緑を確認</li>
+  <li>☐ <span class="status s-todo">未着手</span> <code>transcription_backend.py</code> を <code>src/transcription/</code> へ分割（モデルID変換・各バックエンド）</li>
+  <li>☐ <span class="status s-todo">未着手</span> <code>audio_processor.py</code> を <code>src/diarization/</code> の5モジュールへ分割</li>
+  <li>☐ <span class="status s-todo">未着手</span> <code>process_and_save_to_csv</code>（約208行）・<code>process_for_api</code>（約92行）・<code>_extract_vocals_inplace</code>（約88行）を50行以下に分解</li>
+  <li>☐ <span class="status s-todo">未着手</span> <code>speaker_identification.py</code> / <code>embedding_cache.py</code> / <code>voice_database.py</code> を移設</li>
+  <li>☐ <span class="status s-todo">未着手</span> CLI（<code>main.py</code>）を <code>src/cli/runner.py</code> へ移し、ルートに薄いエントリポイントを残す</li>
+  <li>☐ <span class="status s-todo">未着手</span> テスト全緑 + <code>python main.py --help</code> を確認・フェーズ報告・承認</li>
+</ul>
+</div>
+
+<div class="phase">
+<h3>Phase 4 — Web アプリ層の分割 <span class="status s-todo">未着手</span></h3>
+<ul class="todo">
+  <li>☐ <span class="status s-todo">未着手</span> 特性テスト #12（TestClient スモーク）を作成し、現行 <code>app.py</code> で緑を確認</li>
+  <li>☐ <span class="status s-todo">未着手</span> <code>src/web/application.py</code> / <code>jobs.py</code> / <code>converters.py</code> を切り出し</li>
+  <li>☐ <span class="status s-todo">未着手</span> ルートを <code>src/web/routes/</code> の6モジュールへ APIRouter 分割</li>
+  <li>☐ <span class="status s-todo">未着手</span> <code>/process/transcription</code>（約196行）・<code>/process/matching</code>（約78行）を50行以下に分解</li>
+  <li>☐ <span class="status s-todo">未着手</span> ルート <code>app.py</code> を薄いエントリポイントにし、<code>uvicorn app:app</code> と <code>python app.py</code> の両方が動くことを確認</li>
+  <li>☐ <span class="status s-todo">未着手</span> テスト全緑 + アプリ起動確認・フェーズ報告・承認</li>
+</ul>
+</div>
+
+<div class="phase">
+<h3>Phase 5 — Spark 連携・仕上げ <span class="status s-todo">未着手</span></h3>
+<ul class="todo">
+  <li>☐ <span class="status s-todo">未着手</span> <code>spark_server.py</code> / <code>spark_client.py</code> を <code>src/spark/</code> へ移設し、起動方法の互換性を確認</li>
+  <li>☐ <span class="status s-todo">未着手</span> <code>spark-up.sh</code> / <code>spark-down.sh</code> / <code>spark-logs.sh</code> を実態に追随（必要な場合のみ）</li>
+  <li>☐ <span class="status s-todo">未着手</span> 特性テスト #13（エントリポイント）を作成</li>
+  <li>☐ <span class="status s-todo">未着手</span> デッドコード・未使用 import・コメントアウトコードの一掃</li>
+  <li>☐ <span class="status s-todo">未着手</span> <code>ruff check</code> / <code>ruff format</code> をリポジトリ全体に適用</li>
+  <li>☐ <span class="status s-todo">未着手</span> 規約4.1 の残違反箇所を洗い出し、超過が残る場合は理由を明記</li>
+  <li>☐ <span class="status s-todo">未着手</span> README を更新（構成図・実行手順・テスト実行方法）</li>
+  <li>☐ <span class="status s-todo">未着手</span> リファクタ中に発見した既存バグ・設計上の懸念を一覧化して報告（本作業では直さない）</li>
+  <li>☐ <span class="status s-todo">未着手</span> 全 ToDo 完了 → ステータスを「完了」に更新し <code>docs/specs/archive/</code> へ移動</li>
+</ul>
+</div>
+
+<h2>11. 未確定事項・クライアント確認待ち</h2>
+<ul>
+  <li>Phase 5 完了時に<strong>実音声での通し確認</strong>を追加するか（現計画では未実施）。</li>
+  <li>Spark サーバ側のリポジトリ更新（<code>git pull</code> 等）は本作業の対象外とし、クライアント側で実施いただく想定。</li>
+</ul>

@@ -58,3 +58,27 @@ audio-transcribe = "main:main"
 [tool.hatch.build.targets.wheel]
 modules = ["main"]
 only-include = ["main.py", "app.py", "audio_processor.py", "speaker_identification.py", "subtitle_matcher.py", "subtitle_exporter.py"]
+
+# 開発用ツール。実行時には不要。
+#   uv pip install pytest httpx ruff
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "httpx>=0.27",  # FastAPI の TestClient が内部で使用する
+    "ruff>=0.6",
+]
+
+[tool.pytest.ini_options]
+# tools/ の調査スクリプトを収集対象に含めない
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+exclude = [".venv", "temp", "voice_databases", "embedding_cache"]
+
+[tool.ruff.lint]
+# isort (I) は有効化しない。app.py は import 前に HF_HUB_OFFLINE を設定しており、
+# import の並べ替えが実行時の挙動を変えてしまうため。
+select = ["E", "F", "W"]
