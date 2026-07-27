@@ -1,0 +1,632 @@
+<meta charset="utf-8">
+<title>既存バグの解消 仕様書</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+         line-height: 1.8; max-width: 1000px; margin: 0 auto; padding: 2rem 1.2rem; }
+  h1 { border-bottom: 3px solid #c62; padding-bottom: .4rem; }
+  h2 { border-left: 6px solid #c62; padding-left: .6rem; margin-top: 2.4rem; }
+  h3 { margin-top: 1.6rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: .94rem; }
+  th, td { border: 1px solid #8884; padding: .45rem .6rem; text-align: left; vertical-align: top; }
+  th { background: #c621; }
+  code, pre { font-family: "SF Mono", Menlo, monospace; font-size: .88rem; }
+  pre { background: #8881; padding: .9rem; overflow-x: auto; border-radius: 6px; }
+  .status { display: inline-block; padding: .1rem .55rem; border-radius: 4px;
+            font-size: .8rem; font-weight: 700; border: 1px solid currentColor; }
+  .s-todo { color: #a60; }
+  .s-doing { color: #06a; }
+  .s-done { color: #070; }
+  .meta { background: #c621; padding: .8rem 1rem; border-radius: 6px; }
+  .warn { border-left: 5px solid #c62; background: #c621; padding: .7rem 1rem; border-radius: 4px; margin: 1rem 0; }
+  .note { border-left: 5px solid #06a; background: #06a1; padding: .7rem 1rem; border-radius: 4px; margin: 1rem 0; }
+  ul.todo { list-style: none; padding-left: .4rem; }
+  ul.todo li { margin: .35rem 0; }
+  .sev { display: inline-block; padding: .05rem .45rem; border-radius: 4px; font-size: .78rem;
+         font-weight: 700; border: 1px solid currentColor; }
+  .sev-high { color: #c00; }
+  .sev-mid { color: #a60; }
+  .sev-low { color: #666; }
+  .bug { margin-top: 2rem; padding-top: .4rem; border-top: 1px dashed #8886; }
+</style>
+
+<h1>既存バグの解消 仕様書</h1>
+
+<div class="meta">
+  <strong>ステータス:</strong> <span class="status s-doing">進行中</span>（承認済み / B-1 完了 · 次は B-2）<br>
+  <strong>最終更新日:</strong> 2026-07-27<br>
+  <strong>対象リポジトリ:</strong> <code>audio-diarization-transcript</code>（ブランチ <code>main</code>）<br>
+  <strong>関連仕様書:</strong> <code>docs/specs/2026-07-27_コードベース全体リファクタリング.html</code>（Phase 0〜3 完了・次は Phase 4）
+</div>
+
+<h2>1. 背景・目的</h2>
+
+<p>
+リファクタリング作業（Phase 0〜3）の過程で既存バグを 2 件報告したが、「Refactor 段階では振る舞いを変えない」（規約2.1）
+という取り決めのため未修正のまま残している。クライアントの判断により、
+<strong>Phase 4（Web アプリ層の分割）に着手する前に既存バグを解消する</strong>ことになった。
+</p>
+<p>
+あわせて、次に分割する <code>app.py</code> を含むコードベース全体を対象にバグ探索を行い、
+確定したものを本書で修正する。<strong>先にバグを潰しておくことで、Phase 4 の分割中に
+「元からのバグ」と「分割で入れ込んだバグ」が混ざるのを防ぐ</strong>のが目的である。
+</p>
+
+<h3>クライアントとの確認結果（2026-07-27）</h3>
+<table>
+  <tr><th>確認事項</th><th>決定</th></tr>
+  <tr>
+    <td>対象範囲</td>
+    <td>報告済み 2 件 <strong>＋ コードベース全体の追加バグ探索</strong></td>
+  </tr>
+  <tr>
+    <td><code>colon_ms_to_comma_ms</code> のミリ秒 3 桁未満の解釈</td>
+    <td><strong>現状維持</strong>（<code>"00:00:01:5"</code> → <code>005ms</code> のまま）。仕様として明文化する</td>
+  </tr>
+  <tr>
+    <td>mlx バックエンドでの distil モデル指定</td>
+    <td><strong>警告ログを出したうえで large-v3 へフォールバック</strong>（mlx 用 distil リポジトリは追加しない）</td>
+  </tr>
+</table>
+
+<h2>2. スコープ</h2>
+
+<h3>やること</h3>
+<ul>
+  <li>調査で<strong>再現を確認した</strong>バグ 7 件（B-1〜B-7）の修正</li>
+  <li>各修正に対する<strong>失敗するテストを先に書く</strong>（規約2.1 Red-Green-Refactor）</li>
+  <li>修正により期待値が変わる既存の特性テストの更新（現状を固定していたものを正しい期待値へ）</li>
+  <li>本書で「修正しない」と決めた挙動の<strong>仕様としての明文化</strong>（docstring・テストのコメント）</li>
+</ul>
+
+<h3>やらないこと</h3>
+<ul>
+  <li><strong>ファイル分割・モジュール移動</strong>（Phase 4 / Phase 5 の作業。本書では既存の配置のまま直す）</li>
+  <li><strong>機能追加</strong>（mlx 用 distil リポジトリの追加、CLI への <code>transformers</code> バックエンド追加など）</li>
+  <li>アルゴリズム・精度・性能のチューニング</li>
+  <li>Web UI の見た目・操作フローの変更（<code>templates/</code> は変更しない）</li>
+  <li>依存パッケージの追加・更新</li>
+  <li>規約違反ではあるがバグではない項目の是正（第 7 章に一覧。Phase 4 / 5 で扱う）</li>
+</ul>
+
+<h2>3. 修正対象のバグ一覧</h2>
+
+<table>
+  <tr><th>ID</th><th>重大度</th><th>場所</th><th>症状</th><th>再現確認</th></tr>
+  <tr>
+    <td>B-1</td><td><span class="sev sev-high">重大</span></td>
+    <td><code>app.py</code> 367/368/495/555</td>
+    <td>出力ファイル名のフォーム値が未検証で、<code>temp/</code> の外へファイルを書き込める</td>
+    <td>実証済み</td>
+  </tr>
+  <tr>
+    <td>B-2</td><td><span class="sev sev-mid">中</span></td>
+    <td><code>src/transcription/model_ids.py</code> 10-23</td>
+    <td><code>distil-large-v3</code> 指定が <code>large-v3</code> として解決され、別のモデルが動く</td>
+    <td>実証済み</td>
+  </tr>
+  <tr>
+    <td>B-3</td><td><span class="sev sev-mid">中</span></td>
+    <td><code>src/diarization/processor.py</code> 172-174</td>
+    <td>発話 0 件のとき CSV を書かずに成功を返す。CLI が「保存しました」と嘘の完了報告をする</td>
+    <td>実証済み</td>
+  </tr>
+  <tr>
+    <td>B-4</td><td><span class="sev sev-low">小</span></td>
+    <td><code>src/subtitle/report.py</code> 348/352</td>
+    <td><code>display_summary</code> が空データで <code>ZeroDivisionError</code></td>
+    <td>実証済み</td>
+  </tr>
+  <tr>
+    <td>B-5</td><td><span class="sev sev-low">小</span></td>
+    <td><code>src/transcription/faster_whisper.py</code> 67-68</td>
+    <td>CUDA→CPU フォールバック時にモデルキャッシュが効かず、毎回 CUDA 初期化に失敗し直す</td>
+    <td>コード確認</td>
+  </tr>
+  <tr>
+    <td>B-6</td><td><span class="sev sev-low">小</span></td>
+    <td><code>src/diarization/registry.py</code> 72-78</td>
+    <td><code>HF_HUB_OFFLINE</code> を元の値ではなく無条件に <code>"1"</code> へ戻す</td>
+    <td>コード確認</td>
+  </tr>
+  <tr>
+    <td>B-7</td><td><span class="sev sev-low">小</span></td>
+    <td><code>src/subtitle/exporter.py</code> 60-73</td>
+    <td>話者名が空の行に「スキップします」と警告するが、実際にはスキップしない（嘘のログ）</td>
+    <td>コード確認</td>
+  </tr>
+</table>
+
+<div class="bug">
+<h3>B-1 <span class="sev sev-high">重大</span> — 出力ファイル名のパストラバーサル（規約7.1 違反）</h3>
+
+<p><strong>現象</strong></p>
+<p>
+Web の 3 つの処理ルートは、フォームで受け取った出力ファイル名を検証せずに <code>TEMP_DIR</code> と結合している。
+</p>
+<pre>app.py:367  output_srt_path = TEMP_DIR / output_srt_name      # /process/transcription
+app.py:368  output_csv_path = TEMP_DIR / f"{srt_stem}.csv"    # 同上（stem 経由）
+app.py:495  output_path     = TEMP_DIR / output_csv_name      # /process/matching
+app.py:555  output_path     = TEMP_DIR / output_srt_name      # /process/generation</pre>
+<p>
+<code>pathlib</code> の <code>/</code> 演算子は、右辺が絶対パスなら左辺を<strong>捨てる</strong>。
+また <code>../</code> も素通りする。<code>_job_dir()</code> は <code>job_id</code> を厳格に検査しているのに、
+出力ファイル名だけが無検査で残っている。
+</p>
+
+<p><strong>実際に確認した動作</strong></p>
+<pre>POST /process/generation  output_srt_name="../../TRAVERSAL_TEST.srt"
+  → HTTP 200
+  → /Users/hiyori/dev/TRAVERSAL_TEST.srt が生成された（temp/ の外）
+
+TEMP_DIR / "/tmp/abs.srt"  → /tmp/abs.srt           （絶対パスで左辺が消える）
+TEMP_DIR / ""              → .../temp（ディレクトリ自身）</pre>
+
+<div class="note">
+<strong>影響の範囲について（過大評価しないための注記）</strong><br>
+本アプリは <code>127.0.0.1:8000</code> でローカル起動する個人用ツールであり、外部公開されていない。
+そのため「第三者による攻撃」というより<strong>「打ち間違いでリポジトリ外にファイルを撒く」</strong>事故が実害の中心になる。
+ただし規約7.1 が要求する入力検証が欠けているのは事実であり、Phase 4 でルートを分割する前に直しておく。
+</div>
+
+<p><strong>修正方針</strong></p>
+<ul>
+  <li><code>src/common/</code> に出力ファイル名の検証関数を新設する（例: <code>safe_output_name(raw, default)</code>）。
+      <ul>
+        <li><code>Path(raw).name</code> を取り、元の文字列と一致しなければ不正とする（<code>../</code>・絶対パス・区切り文字を弾く）</li>
+        <li>空文字・<code>.</code>・<code>..</code> は既定名にフォールバックする</li>
+        <li>既存の <code>vdb.sanitize_name</code>（DB名・話者名用）とは用途が違うため別関数にする。
+            ファイル名は拡張子を含むため <code>.</code> を許可する必要がある</li>
+      </ul>
+  </li>
+  <li>3 ルートすべてに適用する。<code>output_csv_path</code> は検証後の名前の <code>stem</code> から作る</li>
+  <li>ダウンロード URL は検証後の名前で組み立てる（現状は不正名だとリンクが 404 になる）</li>
+</ul>
+
+<p><strong>ふるまいの変化</strong></p>
+<p>
+不正な出力名を指定した場合、<strong>これまで temp/ の外に書かれていたものが temp/ 内に書かれる</strong>。
+正常な名前（既定値の <code>transcription.srt</code>・<code>対応表.csv</code>・<code>subtitles.srt</code>、
+および日本語を含む通常のファイル名）に対する挙動は一切変わらない。
+</p>
+
+<p><strong>あわせて入れる多層防御（バグではない）</strong></p>
+<p>
+<code>GET /download/{filename}</code> にも <code>Path(filename).name</code> の検査を入れる。
+<strong>調査では <code>/download/../app.py</code>・<code>%2F</code> エンコード版のいずれも FastAPI のルーティングに
+弾かれて 404 になり、現時点で到達できないことを確認済み</strong>のため、これはバグの修正ではなく予防措置である。
+</p>
+</div>
+
+<div class="bug">
+<h3>B-2 <span class="sev sev-mid">中</span> — distil モデル指定が large-v3 に化ける（Phase 3 で報告済み）</h3>
+
+<p><strong>現象</strong></p>
+<p>
+<code>FASTER_WHISPER_SIZES</code> は前方一致ではなく<strong>部分一致</strong>（<code>if size in lowered</code>）で走査する。
+<code>"distil-large-v3"</code> は <code>"large-v3"</code> を含むうえ、リスト上で <code>"large-v3"</code> のほうが先にあるため、
+distil 指定は決して選ばれない。
+</p>
+<pre>to_faster_whisper_model("distil-large-v3") → "large-v3"                  （期待: "distil-large-v3"）
+to_hf_whisper_repo("distil-large-v3")      → "openai/whisper-large-v3"   （期待: "distil-whisper/distil-large-v3"）
+to_faster_whisper_model("distil-large-v2") → "large-v2"                  （期待: "distil-large-v2"）</pre>
+<p>
+<code>_HF_WHISPER_REPO</code> には distil 用のエントリが用意されているのに、
+そこへ到達する経路が無い（＝デッドな対応表になっている）。
+</p>
+
+<p><strong>踏める経路</strong></p>
+<p>
+Web UI「Whisper モデル品質」→「カスタム（モデルIDを直接入力）」の自由入力欄
+（<code>templates/index.html:235</code>）、および CLI の <code>--mlx_model</code>。
+利用者は distil（軽量・高速）を選んだつもりで、実際には large-v3 の重い推論が走る。
+<code>distil-whisper/distil-large-v3</code> とフルリポジトリ名で書いた場合だけは素通しされるため、実害は限定的。
+</p>
+
+<p><strong>修正方針</strong></p>
+<ul>
+  <li><code>FASTER_WHISPER_SIZES</code> の順序を、<strong>他の候補を部分文字列として含む名前ほど先</strong>になるよう並べ替える。
+      <code>distil-large-v3</code> / <code>distil-large-v2</code> を <code>large-v3</code> 系より前に置く</li>
+  <li>「長い名前から先にマッチさせる」というコメントは既にあるが実態が伴っていないため、
+      <strong>並び順が仕様であること</strong>をテストで固定する（順序を壊したら落ちるテストを書く）</li>
+  <li>mlx 経路は <code>_MLX_REPO</code> に distil のエントリが無い。クライアント決定に従い、
+      <strong>「mlx-whisper は distil モデル非対応のため large-v3 を使用します」と警告ログを出してから</strong>
+      既定へフォールバックする（黙って差し替えない）</li>
+</ul>
+
+<p><strong>更新する既存テスト</strong></p>
+<p>
+<code>tests/test_transcription_backend.py</code> の
+<code>test_distil指定はlarge_v3として解決される既存挙動</code> は現状（バグ）を固定しているテストなので、
+<strong>正しい期待値へ書き換える</strong>（テスト名も実態に合わせて改名する）。
+</p>
+</div>
+
+<div class="bug">
+<h3>B-3 <span class="sev sev-mid">中</span> — 発話 0 件のとき「保存しました」と嘘の完了報告をする</h3>
+
+<p><strong>現象</strong></p>
+<p>
+<code>process_and_save_to_csv()</code> は Whisper がセグメントを 1 件も返さなかったとき、
+<strong>CSV を書かずに <code>True</code>（成功）を返す</strong>。
+</p>
+<pre>src/diarization/processor.py:172-174
+    if not segments:
+        logger.warning("No speech segments detected by Whisper.")
+        return True          # ← CSV を書かないまま成功扱い</pre>
+
+<p><strong>実際に確認した動作</strong></p>
+<pre>戻り値 = True / CSV 存在 = False
+→ CLI (src/cli/runner.py:216) は
+   "Processing complete. Results saved to <path>" と表示して終了コード 0 を返す
+→ しかし <path> は存在しない</pre>
+<p>
+Web 側（<code>app.py:415</code>）は <code>output_csv_path.exists()</code> も見ているため誤動作はしないが、
+「文字起こし処理に失敗しました」という<strong>原因とずれたメッセージ</strong>が出る（実際は無音・無発話）。
+</p>
+
+<p><strong>修正方針</strong></p>
+<ul>
+  <li>セグメントが 0 件でも<strong>ヘッダ行だけの CSV を書き出す</strong>。
+      「処理が完走したら CSV が存在する」という後段（CLI・Web）の前提を満たす</li>
+  <li>警告ログ（<code>No speech segments detected by Whisper.</code>）はそのまま残す</li>
+</ul>
+
+<div class="warn">
+<strong>これは振る舞いの変更です（要承認）</strong><br>
+「発話 0 件」を <em>失敗</em> と <em>中身のない成功</em> のどちらとして扱うかは設計判断のため、方針を明記しておく。<br>
+本書では<strong>後者（ヘッダのみの CSV を出して成功）</strong>を採る。理由は
+(1) 無音・BGM のみの音声を投入したときにエラーにするのは過剰、
+(2) 戻り値 <code>True</code> という現在の意味を変えずに矛盾だけを解消できる、
+(3) Web 側は 0 行の SRT とクラスタ 0 件のジョブが作られ、画面の流れが途切れない、の 3 点。<br>
+「失敗（<code>False</code> を返す）にすべき」というご判断であれば、そちらへ変更する。
+</div>
+</div>
+
+<div class="bug">
+<h3>B-4 <span class="sev sev-low">小</span> — 空データで ZeroDivisionError</h3>
+
+<p><strong>現象</strong></p>
+<pre>src/subtitle/report.py:348  len(matched_script_indices) / len(scripts) * 100
+src/subtitle/report.py:352  len(matched_stt_indices)    / len(stt)     * 100
+
+display_summary([], [], [], set(), set())  →  ZeroDivisionError: division by zero</pre>
+<p>
+現状は <code>matcher.py:57</code> の <code>if not scripts or not stt: return</code> によって
+マッチング処理からは到達しない。ただし <code>display_summary</code> は公開関数であり、
+呼び出し側のガードに依存して壊れる作りになっている。
+</p>
+
+<p><strong>修正方針</strong></p>
+<ul>
+  <li>母数が 0 のときは <code>0.0%</code> と表示する（例外を投げない）</li>
+  <li>0 件の場合の表示を境界値テストで固定する</li>
+</ul>
+</div>
+
+<div class="bug">
+<h3>B-5 <span class="sev sev-low">小</span> — CPU フォールバック時にモデルキャッシュが効かない</h3>
+
+<p><strong>現象</strong></p>
+<pre>src/transcription/faster_whisper.py:67-68
+    model, cache_key = _load_model(model_name, device, compute_type)
+    _MODEL_CACHE[cache_key] = model      # ← 実際に使えた設定のキーだけ登録される</pre>
+<p>
+CTranslate2 が CUDA 非対応ビルドの環境（aarch64 = Spark など）では、
+<code>_load_model</code> が <code>(model_name, "cpu", "int8")</code> というキーを返す。
+一方 <code>_get_model</code> の探索キーは <code>(model_name, "cuda", "float16")</code> のままなので、
+<strong>次の呼び出しでもキャッシュがヒットせず、毎回 CUDA 初期化を試みては失敗して CPU に落ちる</strong>。
+モデル読み込みは重い処理のため、実行のたびに無駄なコストがかかる。
+</p>
+
+<p><strong>修正方針</strong></p>
+<ul>
+  <li>フォールバックが起きた場合、<strong>要求時のキーにも同じモデルインスタンスを登録する</strong>
+      （実際に使った設定のキーと両方を張る）</li>
+  <li>2 回目以降の <code>_get_model</code> が読み込みを呼ばないことをテストで確認する（<code>WhisperModel</code> はモック）</li>
+</ul>
+<p>出力される文字起こし結果は変わらない。変わるのは 2 回目以降の所要時間だけ。</p>
+</div>
+
+<div class="bug">
+<h3>B-6 <span class="sev sev-low">小</span> — 環境変数を元の値へ戻していない</h3>
+
+<p><strong>現象</strong></p>
+<pre>src/diarization/registry.py:70-78
+    except Exception:
+        os.environ["HF_HUB_OFFLINE"] = "0"
+        try:
+            return SpeakerIdentifier(...)
+        finally:
+            os.environ["HF_HUB_OFFLINE"] = "1"   # ← 元の値ではなく決め打ちで "1"</pre>
+<p>
+エントリポイント（<code>main.py</code> / <code>app.py</code>）が <code>"1"</code> を設定しているため通常は一致するが、
+利用者が <code>HF_HUB_OFFLINE=0</code> を明示して起動した場合、この関数を一度通っただけで
+<strong>意図せずオフラインモードに切り替わる</strong>。「一時的に外して戻す」という関数の意図と実装がずれている。
+</p>
+
+<p><strong>修正方針</strong></p>
+<ul>
+  <li>呼び出し前の値を保存し、<code>finally</code> で<strong>元の値へ戻す</strong>（未設定だった場合はキーごと削除する）</li>
+</ul>
+</div>
+
+<div class="bug">
+<h3>B-7 <span class="sev sev-low">小</span> — スキップしていないのに「スキップします」と警告する</h3>
+
+<p><strong>現象</strong></p>
+<pre>src/subtitle/exporter.py:60-73  _is_usable_row()
+    if all(row[col] for col in REQUIRED_COLUMNS):
+        return True
+    logger.warning("警告: N行目に空のデータがあります。スキップします。 (speakerは空でも可)")
+    if not all(row[col] for col in _ESSENTIAL_COLUMNS):
+        logger.warning("警告: N行目に必須データ...がありません。スキップします。")
+        return False
+    return True          # ← 話者名だけ空の行は採用されるのに、警告だけ出ている</pre>
+<p>
+話者名（<code>speaker</code>）は空でよい仕様なのに、空だと必ず「スキップします」と警告が出る。
+実際にはスキップされず字幕になるため、<strong>ログが実際の動作と食い違う</strong>。
+対応表 CSV では話者名の空欄はごく普通に発生するため、警告が大量に出て本当の警告が埋もれる。
+</p>
+
+<p><strong>修正方針</strong></p>
+<ul>
+  <li>必須列（<code>start_time</code> / <code>end_time</code> / <code>subtitle_text</code>）の判定を先に行い、
+      欠けている場合だけ「スキップします」と警告する</li>
+  <li>話者名のみが空の行は<strong>警告を出さずに採用する</strong>（仕様どおりの正常系のため）</li>
+</ul>
+<p>字幕の出力内容は変わらない。変わるのはログだけ。</p>
+</div>
+
+<h2>4. 入出力仕様（不変条件）</h2>
+
+<p>本作業の前後で、以下は<strong>変わらないこと</strong>を保証する。</p>
+<table>
+  <tr><th>対象</th><th>不変とする内容</th></tr>
+  <tr><td>文字起こしCSV</td><td>列の並び・時刻書式 <code>HH:MM:SS:mmm</code>・エンコーディング <code>utf-8-sig</code>・クォート方針。<strong>B-3 で増えるのは「0 行のときヘッダのみのファイルが出る」ケースのみ</strong></td></tr>
+  <tr><td>SRT出力</td><td>ブロック番号の採番・時刻書式・本文形式</td></tr>
+  <tr><td>対応表CSV</td><td>列構成・マッチ判定・時刻補間の結果</td></tr>
+  <tr><td>Web API</td><td>全エンドポイントのパス・HTTPメソッド・フォーム項目名・返却テンプレート。<strong>正常なファイル名を指定した場合の出力先も不変</strong></td></tr>
+  <tr><td>CLI</td><td><code>main.py</code> のオプション名・既定値・終了コード</td></tr>
+  <tr><td>文字起こし精度</td><td>モデル指定が正しく解決されるようになる（B-2）以外、推論の内容は不変</td></tr>
+</table>
+
+<h3>出力ファイル名の検証仕様（B-1 で新設）</h3>
+<table>
+  <tr><th>入力</th><th>結果</th></tr>
+  <tr><td><code>"transcription.srt"</code></td><td><code>temp/transcription.srt</code>（現行どおり）</td></tr>
+  <tr><td><code>"対応表.csv"</code></td><td><code>temp/対応表.csv</code>（日本語名も現行どおり）</td></tr>
+  <tr><td><code>"../../evil.srt"</code></td><td>不正 → 既定名にフォールバック</td></tr>
+  <tr><td><code>"/tmp/abs.srt"</code></td><td>不正 → 既定名にフォールバック</td></tr>
+  <tr><td><code>"sub/dir.srt"</code></td><td>不正 → 既定名にフォールバック</td></tr>
+  <tr><td><code>""</code> / <code>"   "</code></td><td>既定名にフォールバック</td></tr>
+  <tr><td><code>"."</code> / <code>".."</code></td><td>既定名にフォールバック</td></tr>
+</table>
+
+<h2>5. 処理フロー（作業手順）</h2>
+
+<p>バグ 1 件ごとに Red-Green を回す（規約2.1）。修正は<strong>1 バグ 1 コミット</strong>とし、あとから個別に追える形にする。</p>
+<pre>B-1 (重大) → B-2 (報告済み) → B-3 → B-4 → B-5 → B-6 → B-7
+  各バグについて:
+    ① バグを再現する失敗テストを書く（Red を確認して提示）
+    ② 修正する（Green を確認）
+    ③ 全テストが緑であることを確認（回帰が無いこと）
+    ④ 仕様書の ToDo を更新してコミット
+最後に:
+    ⑤ pytest 全緑 + ruff + アプリ起動 + CLI --help のまとめ確認
+    ⑥ 報告・承認 → アーカイブ → Phase 4 へ</pre>
+
+<h2>6. エラー処理方針</h2>
+<ul>
+  <li><strong>不正な入力は例外にせず、安全な既定値へフォールバックする</strong>（B-1）。
+      個人用ツールであり、打ち間違いで処理全体が止まるより、既定名で処理が通るほうが使いやすいため。
+      フォールバックしたことは警告ログに残す</li>
+  <li><strong>既存の例外の捕捉位置は変えない。</strong> 握りつぶしを新たに追加しない</li>
+  <li>環境変数の一時変更は必ず <code>try/finally</code> で元へ戻す（B-6）</li>
+  <li>ログの文言は、<strong>実際に起きたことと一致させる</strong>（B-3・B-7）。
+      「スキップします」と書いたらスキップする、「保存しました」と書いたら保存されている状態にする</li>
+</ul>
+
+<h2>7. セキュリティ考慮（規約7章）</h2>
+<table>
+  <tr><th>項目</th><th>方針</th></tr>
+  <tr><td>7.1 入力検証</td><td><strong>本書の主題（B-1）。</strong> フォーム由来の出力ファイル名を検証する。既存の <code>job_id</code>・DB名・話者名の検証ロジックは変更しない（既に妥当なため）。<code>/download</code> にも多層防御を追加する</td></tr>
+  <tr><td>7.2 秘匿情報</td><td>HF トークンの扱いは変更しない。新設する警告ログにパス・トークンを含めない（不正名はそのままログに出さず、既定名へ落としたことだけを記録する）</td></tr>
+  <tr><td>7.3 インジェクション</td><td>ffmpeg 呼び出しは現行どおりリスト形式を維持。<code>shell=True</code> を導入しない</td></tr>
+  <tr><td>7.4 データ保護</td><td><strong>B-1 の修正により、生成物が <code>temp/</code> の外へ出なくなる。</strong> 保存先・保存期間・公開範囲は変更しない</td></tr>
+  <tr><td>7.5 Web</td><td>テンプレートは変更しない。<code>| safe</code> を新規追加しない</td></tr>
+  <tr><td>7.6 依存追加</td><td><strong>追加しない</strong></td></tr>
+  <tr><td>7.7 ファイル操作</td><td>ファイルの移動・削除を行わない（本書は既存ファイルの修正のみ）</td></tr>
+</table>
+
+<h2>8. テスト計画</h2>
+
+<p>
+既存 285 件はすべて緑を維持する。バグごとに<strong>先に落ちるテスト</strong>を書き、修正で緑にする。
+重いモデル（pyannote / Whisper / SentenceTransformer）はモックする（規約2.5）。
+</p>
+
+<table>
+  <tr><th>#</th><th>テストファイル</th><th>検証内容（正常系 / 境界値 / 異常系）</th><th>対象</th></tr>
+  <tr>
+    <td>T-1</td><td><code>tests/test_output_names.py</code>（新規）</td>
+    <td>正常: 英数字名・日本語名・拡張子つきがそのまま通る。境界: 空文字・空白のみ・<code>.</code>・<code>..</code> は既定名。異常: <code>../</code>・絶対パス・<code>sub/dir</code> は既定名</td>
+    <td>B-1</td>
+  </tr>
+  <tr>
+    <td>T-2</td><td><code>tests/test_web_routes.py</code>（新規）</td>
+    <td>TestClient で <code>/process/generation</code> に <code>../</code> 付き出力名を渡し、<strong><code>temp/</code> の外にファイルが作られないこと</strong>を確認。正常名では従来どおり <code>temp/</code> に生成される。<code>/download</code> の不正 filename が 404 になる</td>
+    <td>B-1</td>
+  </tr>
+  <tr>
+    <td>T-3</td><td><code>tests/test_transcription_backend.py</code>（更新）</td>
+    <td><code>distil-large-v3</code> / <code>distil-large-v2</code> が自身に解決される。<code>large-v3</code> 系・<code>turbo</code> の既存解決が壊れていない（回帰）。HF リポジトリが <code>distil-whisper/*</code> になる。mlx 経路は警告つきで既定へ落ちる</td>
+    <td>B-2</td>
+  </tr>
+  <tr>
+    <td>T-4</td><td><code>tests/test_diarization_processor.py</code>（新規）</td>
+    <td>境界: セグメント 0 件のとき<strong>ヘッダのみの CSV が生成され</strong> <code>True</code> が返る。正常: 1 件以上のときは従来どおり</td>
+    <td>B-3</td>
+  </tr>
+  <tr>
+    <td>T-5</td><td><code>tests/test_subtitle_report.py</code>（新規）</td>
+    <td>境界: <code>scripts</code> / <code>stt</code> が空でも例外を投げず <code>0.0%</code> と出す。正常: 通常データの百分率が従来どおり</td>
+    <td>B-4</td>
+  </tr>
+  <tr>
+    <td>T-6</td><td><code>tests/test_transcription_backend.py</code>（追加）</td>
+    <td>CUDA 非対応で CPU に落ちたあと、2 回目の <code>_get_model</code> がモデル読み込みを呼ばない（<code>WhisperModel</code> をモックして呼び出し回数を検証）</td>
+    <td>B-5</td>
+  </tr>
+  <tr>
+    <td>T-7</td><td><code>tests/test_diarization_registry.py</code>（新規）</td>
+    <td>正常: <code>HF_HUB_OFFLINE=0</code> で入ると <code>0</code> のまま戻る。境界: 未設定で入ると未設定に戻る。異常: 2 回目も失敗したら例外を送出しつつ環境変数は復元される</td>
+    <td>B-6</td>
+  </tr>
+  <tr>
+    <td>T-8</td><td><code>tests/test_subtitle_export.py</code>（更新）</td>
+    <td>話者名のみ空の行が<strong>警告なしで</strong>採用される。必須列が空の行は警告つきでスキップされる（<code>caplog</code> で検証）</td>
+    <td>B-7</td>
+  </tr>
+</table>
+
+<h3>完了の判定</h3>
+<ul>
+  <li><code>.venv/bin/python -m pytest -q</code> が全緑（実行出力を提示する）</li>
+  <li><code>.venv/bin/ruff check src/ tests/</code> と <code>ruff format --check</code> が通る</li>
+  <li><code>.venv/bin/python -c "import app"</code> / <code>python main.py --help</code> が成功する</li>
+  <li>TestClient で <code>/</code> が 200 を返す</li>
+</ul>
+
+<div class="note">
+<strong>検証範囲の限界（自己申告）</strong><br>
+B-5（CUDA→CPU フォールバック）は aarch64 + CTranslate2 CPU 専用ビルドという特定環境で起きる問題のため、
+<strong>手元の Mac では実機再現ができない。</strong> モックによる呼び出し回数の検証までしか保証しない。
+B-2 の distil モデルについても、モデル ID の解決が正しくなることは検証するが、
+<strong>distil モデルでの実推論は行わない</strong>（モデルのダウンロードが必要なため）。
+実機確認が必要であればご指示ください。
+</div>
+
+<h2>9. 影響範囲（変更するファイル）</h2>
+<table>
+  <tr><th>ファイル</th><th>変更内容</th><th>対象バグ</th></tr>
+  <tr><td><code>app.py</code></td><td>出力ファイル名の検証を 3 ルートへ適用。<code>/download</code> に多層防御</td><td>B-1</td></tr>
+  <tr><td><code>src/common/</code>（新規1ファイル）</td><td>出力ファイル名の検証関数</td><td>B-1</td></tr>
+  <tr><td><code>src/config.py</code></td><td>既定の出力ファイル名を定数として集約（規約4.5）</td><td>B-1</td></tr>
+  <tr><td><code>src/transcription/model_ids.py</code></td><td>サイズ名リストの並べ替え。mlx フォールバック時の警告</td><td>B-2</td></tr>
+  <tr><td><code>src/diarization/processor.py</code></td><td>セグメント 0 件でもヘッダ行の CSV を書く</td><td>B-3</td></tr>
+  <tr><td><code>src/subtitle/report.py</code></td><td>母数 0 のときの百分率</td><td>B-4</td></tr>
+  <tr><td><code>src/transcription/faster_whisper.py</code></td><td>フォールバック時に要求キーにもキャッシュを張る</td><td>B-5</td></tr>
+  <tr><td><code>src/diarization/registry.py</code></td><td>環境変数の復元</td><td>B-6</td></tr>
+  <tr><td><code>src/subtitle/exporter.py</code></td><td>判定順の入れ替えと警告の整理</td><td>B-7</td></tr>
+  <tr><td><code>src/common/timecode.py</code></td><td>ミリ秒 3 桁未満の解釈を docstring に明記（コード変更なし）</td><td>—</td></tr>
+  <tr><td><code>tests/</code></td><td>新規 5 ファイル・更新 2 ファイル</td><td>全件</td></tr>
+  <tr><td><code>docs/specs/2026-07-27_コードベース全体リファクタリング.html</code></td><td>Phase 4 の「持ち越し事項」から解消済みバグの記述を更新</td><td>—</td></tr>
+</table>
+
+<h2>10. 修正しないと決めたもの（記録）</h2>
+
+<p>調査で見つけたが、本書では<strong>直さない</strong>と判断した項目。理由を添えて記録に残す。</p>
+<table>
+  <tr><th>項目</th><th>場所</th><th>判断</th></tr>
+  <tr>
+    <td><code>colon_ms_to_comma_ms("00:00:01:5")</code> が 500ms ではなく 005ms になる</td>
+    <td><code>src/common/timecode.py</code></td>
+    <td><strong>クライアント判断により現状維持。</strong> コロン区切りのミリ秒は整数として解釈する仕様とし、docstring に明記する。自前の CSV は常に 3 桁で出力するため実害なし</td>
+  </tr>
+  <tr>
+    <td><code>src/common/audio.py</code> がルートロガー（<code>logging.warning</code>）を直接使っている</td>
+    <td><code>src/common/audio.py:117</code></td>
+    <td>規約8.6 違反だがバグではない。<strong>Phase 5（リンタ全体適用）で <code>get_logger</code> へ揃える</strong></td>
+  </tr>
+  <tr>
+    <td><code>spark_server.py</code> が <code>logging.basicConfig</code> とルートロガーを直接使っている</td>
+    <td><code>spark_server.py:40</code> ほか</td>
+    <td>同上。<strong>Phase 5（<code>src/spark/</code> への移設）とあわせて処理する</strong></td>
+  </tr>
+  <tr>
+    <td>CLI の <code>--whisper_backend</code> に <code>transformers</code> が選べない</td>
+    <td><code>src/cli/runner.py:108</code></td>
+    <td>機能追加にあたるためスコープ外。<code>auto</code> が aarch64 を自動判定するため実用上は困らない</td>
+  </tr>
+  <tr>
+    <td><code>spark_client.py</code> がポーリング時に <code>raise_for_status()</code> を呼んでいない</td>
+    <td><code>spark_client.py:70</code></td>
+    <td>サーバが 5xx を返すと <code>.json()</code> 側で分かりにくい例外になる。実害が小さく、Phase 5 の Spark 連携整理でまとめて扱う</td>
+  </tr>
+  <tr>
+    <td><code>app.py</code> の <code>ruff</code> 未通過（E501 が 17 件）</td>
+    <td><code>app.py</code></td>
+    <td>バグではない。<strong>Phase 4 の分割時に解消する</strong>（分割で行が動くため、先に直しても無駄になる）</td>
+  </tr>
+  <tr>
+    <td><code>tools/check_transcript_ms_integer.py</code> の E501 が 2 件</td>
+    <td><code>tools/</code></td>
+    <td>調査スクリプト。Phase 5 で対応（リファクタリング仕様書に記載済み）</td>
+  </tr>
+</table>
+
+<h2>11. ToDo</h2>
+
+<div class="phase">
+<h3>B-1 出力ファイル名のパストラバーサル <span class="status s-done">完了</span></h3>
+<ul class="todo">
+  <li>☑ <span class="status s-done">完了</span> T-1: 出力ファイル名の検証テストを書き、<strong>失敗する</strong>ことを確認（<code>ModuleNotFoundError</code>）</li>
+  <li>☑ <span class="status s-done">完了</span> T-2: TestClient で <code>temp/</code> 外に書けてしまうことを再現（4件 failed を確認）</li>
+  <li>☑ <span class="status s-done">完了</span> <code>src/common/filenames.py</code> を新設し、既定名3件を <code>src/config.py</code> に集約</li>
+  <li>☑ <span class="status s-done">完了</span> <code>app.py</code> の 3 ルートと <code>/download</code> に適用</li>
+  <li>☑ <span class="status s-done">完了</span> 全テスト緑を確認（285 → <strong>321件 passed</strong>）してコミット</li>
+</ul>
+<p><strong>実績:</strong> 新規テスト36件（<code>tests/test_output_names.py</code> 22件 / <code>tests/test_web_routes.py</code> 14件）。
+不正名は既定名へフォールバックし、警告ログを残す。<strong>不正な名前そのものはログに出さない</strong>（指定パスの痕跡を残さないため。規約7.2）。
+<code>/download</code> の検査は多層防御（調査時点で到達不能なことを確認済み）。</p>
+<p><strong>テスト作成時の判断:</strong> 一時作業ディレクトリを <code>tmp_path/a/b/temp</code> と深い位置に作った。
+<code>tmp_path/temp</code> だと <code>../../</code> が pytest の共有 tmp ルートへ抜け、
+過去実行の残骸を拾って検証が不安定になったため。</p>
+</div>
+
+<div class="phase">
+<h3>B-2 distil モデルID の解決 <span class="status s-todo">未着手</span></h3>
+<ul class="todo">
+  <li>☐ <span class="status s-todo">未着手</span> T-3: 既存の「現状固定」テストを正しい期待値へ書き換え、<strong>失敗する</strong>ことを確認</li>
+  <li>☐ <span class="status s-todo">未着手</span> <code>FASTER_WHISPER_SIZES</code> の並べ替え＋順序を守る回帰テスト</li>
+  <li>☐ <span class="status s-todo">未着手</span> mlx 経路の警告ログを追加</li>
+  <li>☐ <span class="status s-todo">未着手</span> 全テスト緑を確認してコミット</li>
+</ul>
+</div>
+
+<div class="phase">
+<h3>B-3 発話 0 件時の CSV 未生成 <span class="status s-todo">未着手</span></h3>
+<ul class="todo">
+  <li>☐ <span class="status s-todo">未着手</span> <strong>方針（ヘッダのみ CSV を出して成功）の承認を得る</strong></li>
+  <li>☐ <span class="status s-todo">未着手</span> T-4: セグメント 0 件のテストを書き、<strong>失敗する</strong>ことを確認</li>
+  <li>☐ <span class="status s-todo">未着手</span> <code>processor.py</code> を修正し、全テスト緑を確認してコミット</li>
+</ul>
+</div>
+
+<div class="phase">
+<h3>B-4〜B-7 小さいバグ <span class="status s-todo">未着手</span></h3>
+<ul class="todo">
+  <li>☐ <span class="status s-todo">未着手</span> B-4: T-5 を書く → <code>report.py</code> の 0 除算を修正 → コミット</li>
+  <li>☐ <span class="status s-todo">未着手</span> B-5: T-6 を書く → <code>faster_whisper.py</code> のキャッシュを修正 → コミット</li>
+  <li>☐ <span class="status s-todo">未着手</span> B-6: T-7 を書く → <code>registry.py</code> の環境変数復元を修正 → コミット</li>
+  <li>☐ <span class="status s-todo">未着手</span> B-7: T-8 を書く → <code>exporter.py</code> の判定順を修正 → コミット</li>
+</ul>
+</div>
+
+<div class="phase">
+<h3>仕上げ <span class="status s-todo">未着手</span></h3>
+<ul class="todo">
+  <li>☐ <span class="status s-todo">未着手</span> <code>timecode.py</code> の docstring にミリ秒解釈の仕様を明記</li>
+  <li>☐ <span class="status s-todo">未着手</span> pytest 全緑 / ruff / <code>import app</code> / <code>main.py --help</code> のまとめ確認</li>
+  <li>☐ <span class="status s-todo">未着手</span> リファクタリング仕様書の「Phase 4 で扱う持ち越し事項」を更新（解消済みバグの反映）</li>
+  <li>☐ <span class="status s-todo">未着手</span> 報告・承認 → 本書を <code>docs/specs/archive/</code> へ移動 → <strong>Phase 4 へ</strong></li>
+</ul>
+</div>
+
+<h2>12. 未確定事項・クライアント確認待ち</h2>
+<ul>
+  <li><strong>B-3 の方針</strong>: 発話 0 件を「ヘッダのみの CSV を出して成功」とするか、「失敗（<code>False</code>）」とするか（本書の提案は前者）</li>
+  <li><strong>コミットの push</strong>: 各バグ 1 コミットで <code>origin/main</code> へ push してよいか（Phase 0〜3 は push 済み）</li>
+  <li><strong>実機確認</strong>: distil モデルでの実推論確認・Spark（aarch64）でのフォールバック確認を行うか（本書ではモックまで）</li>
+</ul>

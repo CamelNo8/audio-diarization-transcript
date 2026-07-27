@@ -94,3 +94,15 @@ SENTENCE_EMBEDDING_MODEL = "stsb-xlm-r-multilingual"
 # ===================================================================
 #: DB名・話者名に使えない文字（ファイル名として不正になるもの）
 INVALID_NAME_CHARS = set('/\\:*?"<>|')
+
+# ===================================================================
+# 出力ファイルの既定名
+# ===================================================================
+#: 文字起こしの字幕 SRT（Web の Step 1）
+DEFAULT_TRANSCRIPTION_SRT_NAME = "transcription.srt"
+
+#: 台本と音声認識の対応表 CSV（Web の Step 2）
+DEFAULT_MATCHING_CSV_NAME = "対応表.csv"
+
+#: 編集済み対応表から生成する字幕 SRT（Web の Step 3）
+DEFAULT_SUBTITLE_SRT_NAME = "subtitles.srt"

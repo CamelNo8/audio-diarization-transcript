@@ -40,12 +40,16 @@ from src.subtitle.exporter import (
 import src.voice_db.registry as vdb
 from src.common.audio import extract_audio
 from src.common.csv_io import read_dict_rows, read_rows, write_rows
+from src.common.filenames import is_safe_output_name, safe_output_name
 from src.common.timecode import colon_ms_to_comma_ms
 from src.config import (
     CLUSTERS_ROOT,
     DEFAULT_DIARIZATION_MODEL,
     DEFAULT_EMBEDDING_MODEL,
+    DEFAULT_MATCHING_CSV_NAME,
     DEFAULT_SPEAKER_THRESHOLD,
+    DEFAULT_SUBTITLE_SRT_NAME,
+    DEFAULT_TRANSCRIPTION_SRT_NAME,
     DEFAULT_WHISPER_MODEL,
     PROJECT_ROOT,
     TEMP_DIR,
@@ -363,6 +367,10 @@ async def process_transcription(
         root_logger.addHandler(log_handler)
 
         identifier = None
+        # フォーム値をそのままパス結合すると temp/ の外へ書けてしまうため検証する
+        output_srt_name = safe_output_name(
+            output_srt_name, DEFAULT_TRANSCRIPTION_SRT_NAME
+        )
         srt_stem = Path(output_srt_name).stem or "transcription"
         output_srt_path = TEMP_DIR / output_srt_name
         output_csv_path = TEMP_DIR / f"{srt_stem}.csv"
@@ -492,6 +500,7 @@ async def process_matching(
             with open(script_path, "wb") as f:
                 shutil.copyfileobj(script_file.file, f)
 
+        output_csv_name = safe_output_name(output_csv_name, DEFAULT_MATCHING_CSV_NAME)
         output_path = TEMP_DIR / output_csv_name
         # マッチングはサブプロセスで実行（PyTorch MPS + FAISS-CPU の同一スレッド競合を回避）
         import asyncio
@@ -552,6 +561,7 @@ async def process_generation(
             return _render_error(request, "字幕データの読み込みに失敗しました。CSVフォーマットを確認してください。")
 
         srt_content = generate_srt_content(subtitle_data)
+        output_srt_name = safe_output_name(output_srt_name, DEFAULT_SUBTITLE_SRT_NAME)
         output_path = TEMP_DIR / output_srt_name
         write_srt_file(str(output_path), srt_content)
 
@@ -575,6 +585,9 @@ async def process_generation(
 
 @app.get("/download/{filename}")
 async def download_file(filename: str):
+    # ルーティング上ここへパス区切りは届かないが、多層防御として検査する
+    if not is_safe_output_name(filename):
+        return HTMLResponse("File not found", status_code=404)
     file_path = TEMP_DIR / filename
     if not file_path.exists() or not file_path.is_file():
         return HTMLResponse("File not found", status_code=404)
