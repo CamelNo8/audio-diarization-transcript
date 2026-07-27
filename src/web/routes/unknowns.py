@@ -6,7 +6,6 @@ Step 1 で声紋DB に載っていなかったクラスタへ、あとから名�
 
 from __future__ import annotations
 
-import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,7 +26,7 @@ from src.web import jobs, storage
 from src.web.converters import csv_to_srt_with_speaker
 from src.web.errors import WebInputError
 from src.web.forms import parse_opt_float
-from src.web.identification import load_identifier
+from src.web.identification import load_identifier, resolve_hf_token
 from src.web.templating import render_error, templates
 
 logger = get_logger(__name__)
@@ -271,9 +270,7 @@ def _reload_identifier(
     Raises:
         WebInputError: トークンが無い、またはモデルを読み込めない場合。
     """
-    hf_token = hf_token_override or os.getenv("HF_TOKEN", "")
-    if not hf_token:
-        raise WebInputError("Hugging Face Token が設定されていません。")
+    hf_token = resolve_hf_token(hf_token_override)
     try:
         return load_identifier(
             db_dir,

@@ -20,6 +20,7 @@ from src.config import (
     DEFAULT_SPEAKER_THRESHOLD,
     DEFAULT_TRANSCRIPTION_SRT_NAME,
     DEFAULT_WHISPER_MODEL,
+    DENOISE_MODELS,
 )
 from src.diarization.processor import AudioProcessor
 from src.diarization.registry import SUPPORTED_REGISTRY_EXTENSIONS
@@ -35,12 +36,6 @@ logger = get_logger(__name__)
 
 router = APIRouter()
 
-#: 背景音除去の強度と audio-separator のモデルの対応。``off`` は除去しない。
-DENOISE_MODELS = {
-    "fast": "Kim_Vocal_2.onnx",
-    "high": "mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt",
-}
-
 #: 画面に出すログ抜粋の長さ（文字数）。
 _SUCCESS_LOG_CHARS = 3000
 _FAILURE_LOG_CHARS = 2000
@@ -53,6 +48,17 @@ class TranscriptionResult:
     csv_path: Path
     srt_path: Path
     unknown_clusters: List[Dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class _TranscriptionRun:
+    """検証を通したあとの、1回分の実行条件。"""
+
+    job_id: str
+    audio_path: Path
+    options: "TranscriptionOptions"
+    registry_dir: Optional[Path]
+    hf_token: str
 
 
 @dataclass
@@ -102,15 +108,15 @@ async def process_transcription(
         registry_dir = _resolve_registry_dir(options)
         _store_registry_uploads(registry_files, registry_dir)
 
-        job_id = jobs.new_job_id()
+        run = _TranscriptionRun(
+            job_id=jobs.new_job_id(),
+            audio_path=audio_path,
+            options=options,
+            registry_dir=registry_dir,
+            hf_token=hf_token,
+        )
         with capture_root_logs() as log_buffer:
-            output = _run_transcription(
-                audio_path=audio_path,
-                options=options,
-                registry_dir=registry_dir,
-                hf_token=hf_token,
-                job_id=job_id,
-            )
+            output = _run_transcription(run)
 
         if output is None:
             return render_error(
@@ -120,16 +126,8 @@ async def process_transcription(
             )
 
         csv_to_srt_with_speaker(output.csv_path, output.srt_path)
-        jobs.save_job(
-            job_id,
-            _build_job(
-                job_id=job_id,
-                result=output,
-                options=options,
-                registry_dir=registry_dir,
-            ),
-        )
-        return _render_success(request, job_id, output, log_buffer.getvalue())
+        jobs.save_job(run.job_id, _build_job(run, output))
+        return _render_success(request, run.job_id, output, log_buffer.getvalue())
 
     except WebInputError as e:
         return render_error(request, str(e))
@@ -234,35 +232,29 @@ def _resolve_output_paths(output_srt_name: str) -> Tuple[Path, Path]:
     return storage.temp_path(csv_name), storage.temp_path(srt_name)
 
 
-def _run_transcription(
-    *,
-    audio_path: Path,
-    options: TranscriptionOptions,
-    registry_dir: Optional[Path],
-    hf_token: str,
-    job_id: str,
-) -> Optional[TranscriptionResult]:
+def _run_transcription(run: _TranscriptionRun) -> Optional[TranscriptionResult]:
     """文字起こしを実行して生成物を返す。失敗時は ``None``。"""
+    options = run.options
     csv_path, srt_path = _resolve_output_paths(options.output_srt_name)
 
     identifier = None
-    if registry_dir is not None:
+    if run.registry_dir is not None:
         identifier = load_identifier(
-            registry_dir,
+            run.registry_dir,
             model_name=options.embedding_model,
-            hf_token=hf_token,
+            hf_token=run.hf_token,
             threshold=options.threshold,
         )
 
     separator_model = DENOISE_MODELS.get(options.denoise_mode)
     with AudioProcessor(
-        audio_file=audio_path,
+        audio_file=run.audio_path,
         output_csv_path=csv_path,
         mlx_model_id=options.whisper_model,
         pyannote_model_id=options.pyannote_model_id,
-        hf_token=hf_token,
+        hf_token=run.hf_token,
         identifier=identifier,
-        registry_dir=registry_dir,
+        registry_dir=run.registry_dir,
         interactive_unknown_resolve=False,
         denoise=separator_model is not None,
         separator_model=separator_model,
@@ -273,7 +265,9 @@ def _run_transcription(
         )
         # Unknown クラスタの音声を永続化（成功時のみ）
         unknown_clusters = (
-            processor.persist_unknown_clusters(jobs.job_dir(job_id)) if success else []
+            processor.persist_unknown_clusters(jobs.job_dir(run.job_id))
+            if success
+            else []
         )
 
     if not success or not csv_path.exists():
@@ -281,26 +275,20 @@ def _run_transcription(
     return TranscriptionResult(csv_path, srt_path, unknown_clusters)
 
 
-def _build_job(
-    *,
-    job_id: str,
-    result: TranscriptionResult,
-    options: TranscriptionOptions,
-    registry_dir: Optional[Path],
-) -> Dict[str, Any]:
+def _build_job(run: _TranscriptionRun, result: TranscriptionResult) -> Dict[str, Any]:
     """ラベル付け画面が使うジョブ状態を組み立てる。"""
     for cluster in result.unknown_clusters:
         cluster["resolved"] = False
         cluster["resolved_name"] = None
     return {
-        "job_id": job_id,
+        "job_id": run.job_id,
         "csv_path": str(result.csv_path),
         "csv_filename": result.csv_path.name,
         "srt_path": str(result.srt_path),
         "srt_filename": result.srt_path.name,
-        "db_name": registry_dir.name if registry_dir is not None else None,
-        "threshold": options.threshold,
-        "embedding_model": options.embedding_model,
+        "db_name": run.registry_dir.name if run.registry_dir is not None else None,
+        "threshold": run.options.threshold,
+        "embedding_model": run.options.embedding_model,
         "clusters": result.unknown_clusters,
         "created_at": datetime.now().isoformat(timespec="seconds"),
     }

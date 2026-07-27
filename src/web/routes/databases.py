@@ -5,10 +5,11 @@ from __future__ import annotations
 import shutil
 import subprocess
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from typing import List
 
-from fastapi import APIRouter, File, Form, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 
 import src.voice_db.registry as vdb
@@ -21,6 +22,14 @@ from src.web.templating import render_error, templates
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/databases")
+
+
+@dataclass
+class TrimForm:
+    """話者ファイルの切り出し範囲（秒）。空欄は「指定なし」。"""
+
+    start: str = Form("")
+    end: str = Form("")
 
 
 def _render_db_list(request: Request) -> HTMLResponse:
@@ -169,8 +178,7 @@ async def api_trim_speaker(
     request: Request,
     name: str,
     filename: str,
-    start: str = Form(""),
-    end: str = Form(""),
+    crop: TrimForm = Depends(),
 ):
     """登録済み話者ファイルを指定範囲で切り出して上書きする（純粋な声だけ残す）。"""
     try:
@@ -178,8 +186,8 @@ async def api_trim_speaker(
     except (ValueError, FileNotFoundError) as e:
         return render_error(request, str(e))
 
-    crop_start = parse_opt_float(start)
-    crop_end = parse_opt_float(end)
+    crop_start = parse_opt_float(crop.start)
+    crop_end = parse_opt_float(crop.end)
     if (crop_start is None or crop_start <= 0) and crop_end is None:
         return render_error(request, "切り出し範囲が指定されていません。")
     if crop_start is not None and crop_end is not None and crop_end <= crop_start:

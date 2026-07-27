@@ -45,6 +45,9 @@ dependencies = [
     # そのため onnxruntime のディストリビューションのみプラットフォームで切り替える。
     "audio-separator[gpu]>=0.21.0 ; sys_platform != 'darwin'",
     "audio-separator[cpu]>=0.21.0 ; sys_platform == 'darwin'",
+    # Spark（DGX）へ推論をオフロードするクライアント（src/spark/client.py）用。
+    # huggingface_hub 経由で既に入るが、直接 import するので明示する。
+    "requests>=2.31",
 ]
 
 [project.scripts]

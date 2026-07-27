@@ -14,8 +14,8 @@ PC から音声をアップロードすると、以下を GPU(CUDA) で実行し
   GET  /jobs/{id}/result   → 完了後の JSON 本体
   GET  /jobs/{id}/vocals   → 照合用の処理済み WAV（audio/wav）
 
-起動例（Spark の CUDA コンテナ内）:
-  uvicorn spark_server:app --host 0.0.0.0 --port 8000
+起動例（Spark の CUDA コンテナ内。リポジトリのルートで実行する）:
+  uvicorn src.spark.server:app --host 0.0.0.0 --port 8000
 
 環境変数:
   HF_TOKEN          Hugging Face トークン（pyannote モデル取得・利用規約同意済みのもの）
@@ -24,20 +24,23 @@ PC から音声をアップロードすると、以下を GPU(CUDA) で実行し
 
 from __future__ import annotations
 
-import logging
 import os
 import threading
 import traceback
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
+from src.common.logging import configure_logging, get_logger
+from src.config import DENOISE_MODELS
 from src.diarization import processor as audio_processor
 
-logging.basicConfig(level=logging.INFO)
+configure_logging()
+logger = get_logger(__name__)
 
 # pyannote モデルはローカルキャッシュに無ければ取得する必要があるため、
 # オフライン強制はしない（初回はオンラインでダウンロードさせる）。
@@ -45,13 +48,6 @@ os.environ.setdefault("HF_HUB_OFFLINE", "0")
 
 WORK_DIR = Path(os.getenv("SPARK_WORK_DIR", "/tmp/spark_jobs"))
 WORK_DIR.mkdir(parents=True, exist_ok=True)
-
-# 背景音除去モデル（src/web/routes/transcription.py の DENOISE_MODELS と同じキー）
-DENOISE_MODELS = {
-    "off": None,
-    "fast": "Kim_Vocal_2.onnx",
-    "high": "mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt",
-}
 
 app = FastAPI(title="Spark Diarization/Transcription API")
 
@@ -61,45 +57,45 @@ JOBS: dict[str, dict] = {}
 _JOBS_LOCK = threading.Lock()
 
 
+@dataclass
+class JobOptions:
+    """ジョブ作成フォームの推論パラメータ。"""
+
+    num_speakers: str = Form("")  # "" or 整数
+    model: str = Form("large-v3")  # whisper サイズ
+    pyannote_model_id: str = Form("pyannote/speaker-diarization-3.1")
+    denoise: str = Form("fast")  # off / fast / high
+    hf_token: str = Form("")  # 空なら環境変数を使用
+
+    @property
+    def speaker_count(self) -> Optional[int]:
+        """話者数の指定。数値でなければ ``None``（自動推定）。"""
+        text = str(self.num_speakers).strip()
+        return int(text) if text.isdigit() else None
+
+
+@dataclass(frozen=True)
+class _JobRequest:
+    """裏スレッドへ渡す 1 ジョブ分の入力。"""
+
+    job_id: str
+    wav_path: Path
+    options: JobOptions
+    hf_token: str
+
+
 def _update_job(job_id: str, **fields) -> None:
     with _JOBS_LOCK:
         JOBS[job_id].update(fields)
 
 
-def _run_job(
-    job_id: str,
-    wav_path: Path,
-    num_speakers: Optional[int],
-    model: str,
-    pyannote_model_id: str,
-    denoise_mode: str,
-    hf_token: str,
-) -> None:
+def _run_job(job: _JobRequest) -> None:
+    """1件のジョブを最後まで処理し、状態を :data:`JOBS` に反映する。"""
     try:
-        _update_job(job_id, status="running")
-        separator_model = DENOISE_MODELS.get(denoise_mode, None)
-        vocals_out = WORK_DIR / f"{job_id}_vocals.wav"
-
-        with audio_processor.AudioProcessor(
-            audio_file=wav_path,
-            output_csv_path=WORK_DIR / f"{job_id}.csv",  # 未使用（API では書き出さない）
-            mlx_model_id=model,
-            pyannote_model_id=pyannote_model_id,
-            hf_token=hf_token,
-            identifier=None,                 # 照合は PC 側で行う
-            registry_dir=None,
-            interactive_unknown_resolve=False,
-            denoise=separator_model is not None,
-            separator_model=separator_model,
-            whisper_backend="faster",        # Linux/CUDA は faster-whisper 固定
-        ) as processor:
-            result = processor.process_for_api(
-                known_num_speakers=num_speakers,
-                vocals_out=vocals_out,
-            )
-
+        _update_job(job.job_id, status="running")
+        result = _transcribe(job)
         _update_job(
-            job_id,
+            job.job_id,
             status="done",
             result={
                 "segments": result["segments"],
@@ -108,23 +104,49 @@ def _run_job(
             },
             vocals=result.get("vocals_path"),
         )
-        logging.info(f"[{job_id}] done: {result['num_speakers']} speakers, "
-                     f"{len(result['segments'])} segments")
+        logger.info(
+            f"[{job.job_id}] done: {result['num_speakers']} speakers, "
+            f"{len(result['segments'])} segments"
+        )
     except Exception as e:
-        logging.error(f"[{job_id}] failed: {e}\n{traceback.format_exc()}")
-        _update_job(job_id, status="error", error=str(e))
+        logger.error(f"[{job.job_id}] failed: {e}\n{traceback.format_exc()}")
+        _update_job(job.job_id, status="error", error=str(e))
     finally:
         # アップロード元 WAV は不要になったら削除（vocals は DL 用に残す）
         try:
-            wav_path.unlink(missing_ok=True)
-        except OSError:
-            pass
+            job.wav_path.unlink(missing_ok=True)
+        except OSError as e:
+            logger.debug(f"[{job.job_id}] 入力WAVを削除できませんでした: {e}")
+
+
+def _transcribe(job: _JobRequest) -> dict:
+    """話者分離と文字起こしを GPU で実行して結果 dict を返す。"""
+    separator_model = DENOISE_MODELS.get(job.options.denoise)
+    with audio_processor.AudioProcessor(
+        audio_file=job.wav_path,
+        # API では CSV を書き出さないが、コンストラクタが要求するため渡す
+        output_csv_path=WORK_DIR / f"{job.job_id}.csv",
+        mlx_model_id=job.options.model,
+        pyannote_model_id=job.options.pyannote_model_id,
+        hf_token=job.hf_token,
+        identifier=None,  # 照合は PC 側で行う
+        registry_dir=None,
+        interactive_unknown_resolve=False,
+        denoise=separator_model is not None,
+        separator_model=separator_model,
+        whisper_backend="faster",  # Linux/CUDA は faster-whisper 固定
+    ) as processor:
+        return processor.process_for_api(
+            known_num_speakers=job.options.speaker_count,
+            vocals_out=WORK_DIR / f"{job.job_id}_vocals.wav",
+        )
 
 
 @app.get("/health")
 def health():
     try:
         import torch
+
         cuda = torch.cuda.is_available()
         name = torch.cuda.get_device_name(0) if cuda else None
     except Exception:
@@ -135,28 +157,30 @@ def health():
 @app.post("/jobs")
 async def create_job(
     file: UploadFile = File(...),
-    num_speakers: str = Form(""),                                  # "" or 整数
-    model: str = Form("large-v3"),                                 # whisper サイズ
-    pyannote_model_id: str = Form("pyannote/speaker-diarization-3.1"),
-    denoise: str = Form("fast"),                                   # off / fast / high
-    hf_token: str = Form(""),                                      # 空なら環境変数を使用
+    options: JobOptions = Depends(),
 ):
-    token = hf_token or os.getenv("HF_TOKEN", "")
+    """音声を受け取ってジョブを登録し、``job_id`` を即返す。"""
+    token = options.hf_token or os.getenv("HF_TOKEN", "")
     if not token:
-        raise HTTPException(400, "HF_TOKEN が未設定です（フォーム hf_token か環境変数で指定）")
+        raise HTTPException(
+            400, "HF_TOKEN が未設定です（フォーム hf_token か環境変数で指定）"
+        )
 
     job_id = uuid.uuid4().hex[:12]
     wav_path = WORK_DIR / f"{job_id}_input{Path(file.filename or '').suffix or '.wav'}"
     wav_path.write_bytes(await file.read())
 
-    n_spk = int(num_speakers) if str(num_speakers).strip().isdigit() else None
-
     with _JOBS_LOCK:
-        JOBS[job_id] = {"status": "queued", "error": None, "result": None, "vocals": None}
+        JOBS[job_id] = {
+            "status": "queued",
+            "error": None,
+            "result": None,
+            "vocals": None,
+        }
 
     threading.Thread(
         target=_run_job,
-        args=(job_id, wav_path, n_spk, model, pyannote_model_id, denoise, token),
+        args=(_JobRequest(job_id, wav_path, options, token),),
         daemon=True,
     ).start()
 

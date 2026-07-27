@@ -2,13 +2,17 @@
 ミリ秒単位で整数に丸められているかを確認するテスト。
 
 実行例:
-    python test_transcript_ms_integer.py 三上.wav
-    python test_transcript_ms_integer.py 転スラ1話調整版.wav --model mlx-community/whisper-large-v3-mlx
+    python tools/check_transcript_ms_integer.py 音声.wav
+    python tools/check_transcript_ms_integer.py 音声.wav --model <mlx のモデルID>
 
 判定方法:
     seconds * 1000 が整数 (1e-9 以下の誤差まで) かどうかを確認する。
     すべてのセグメントの start / end が整数ms ならば "整数に丸め込まれている" と判定。
+
+調査用の使い捨てスクリプト。結果を人が読む前提なので、出力は logger ではなく
+print で行う（規約8.6 のデバッグ print 禁止とは別）。
 """
+
 from __future__ import annotations
 
 import argparse
@@ -44,10 +48,13 @@ def run_transcription(audio_path: Path, model: str) -> list[dict]:
     return result.get("segments", [])
 
 
-def check_segments(segments: list[dict]) -> tuple[int, int, list[tuple[int, str, float]]]:
+Violation = tuple[int, str, float]
+
+
+def check_segments(segments: list[dict]) -> tuple[int, int, list[Violation]]:
     """整数msのセグメント数、総セグメント数、整数でなかったセグメントの一覧を返す。"""
     integer_count = 0
-    violations: list[tuple[int, str, float]] = []
+    violations: list[Violation] = []
 
     for idx, seg in enumerate(segments):
         for field in ("start", "end"):
@@ -78,7 +85,9 @@ def main() -> int:
     args = parser.parse_args()
 
     if not args.audio_file.is_file():
-        print(f"Error: 音声ファイルが見つかりません: {args.audio_file}", file=sys.stderr)
+        print(
+            f"Error: 音声ファイルが見つかりません: {args.audio_file}", file=sys.stderr
+        )
         return 2
 
     print(f"[INFO] Transcribing: {args.audio_file}")

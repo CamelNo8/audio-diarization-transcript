@@ -77,6 +77,14 @@ DEFAULT_WHISPER_MODEL = "mlx-community/whisper-large-v3-mlx"
 #: （HuggingFace の karaokenerds/all-uvr-models から取得）
 DEFAULT_SEPARATOR_MODEL = "Kim_Vocal_2.onnx"
 
+#: 除去の強度と audio-separator のモデルの対応。``None`` は除去しない。
+#: 未知のキーも「除去しない」として扱う（``.get()`` が ``None`` を返すため）。
+DENOISE_MODELS = {
+    "off": None,
+    "fast": DEFAULT_SEPARATOR_MODEL,
+    "high": "mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt",
+}
+
 # ===================================================================
 # 字幕マッチング
 # ===================================================================
