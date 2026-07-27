@@ -12,11 +12,12 @@ import asyncio
 import csv
 import io
 import json
+import shutil
 from pathlib import Path
 
 import pytest
 
-import app as app_module
+import src.web.jobs as jobs
 
 WAV_BYTES = b"RIFF----WAVEfmt "
 SCRIPT_TXT = "# 場面\n太郎:やあ\n".encode("utf-8")
@@ -59,7 +60,7 @@ class Test文字起こし:
     def test_ffmpegが無ければエラー表示になる(
         self, client, 文字起こしをモックにする, monkeypatch
     ):
-        monkeypatch.setattr(app_module.shutil, "which", lambda name: None)
+        monkeypatch.setattr(shutil, "which", lambda name: None)
 
         response = client.post(
             "/process/transcription",
@@ -256,7 +257,7 @@ class Testマッチング:
         srt_path = work_dir / "transcription.srt"
         srt_path.write_text("1\n00:00:01,000 --> 00:00:02,000\n[太郎] やあ\n", "utf-8")
         job_id = "20260727-120000-abc123"
-        app_module._save_job(
+        jobs.save_job(
             job_id,
             {"job_id": job_id, "srt_path": str(srt_path), "clusters": []},
         )
@@ -583,7 +584,7 @@ class Test未知話者のラベル付け:
         srt_path = work_dir / "transcription.srt"
         srt_path.write_text("1\n", encoding="utf-8")
 
-        app_module._save_job(
+        jobs.save_job(
             job_id,
             {
                 "job_id": job_id,
@@ -646,7 +647,7 @@ class Test未知話者のラベル付け:
         )
 
         assert response.status_code == 200
-        job = app_module._load_job(未解決ジョブ)
+        job = jobs.load_job(未解決ジョブ)
         rows = list(csv.reader(open(job["csv_path"], encoding="utf-8-sig", newline="")))
         assert rows[1][2] == "花子"
         assert (話者入りDB / "花子.wav").is_file()
@@ -701,7 +702,7 @@ class Test未知話者のラベル付け:
         )
 
         assert response.status_code == 200
-        assert app_module._load_job(未解決ジョブ)["clusters"][0]["resolved"] is False
+        assert jobs.load_job(未解決ジョブ)["clusters"][0]["resolved"] is False
 
     def test_新規DBを作ってラベル付けできる(
         self,

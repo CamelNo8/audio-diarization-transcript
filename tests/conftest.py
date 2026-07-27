@@ -1,7 +1,7 @@
 """Web レイヤのテストで共有するフィクスチャ。
 
-差し替え対象のモジュールをこのファイルに集約している。Phase 4 で ``app.py`` を
-``src/web/`` へ分割しても、書き換えるのはここだけで済むようにするため。
+差し替え対象のモジュールをこのファイルに集約している。参照先が移動しても、
+書き換えるのはここだけで済むようにするため。
 """
 
 from __future__ import annotations
@@ -15,18 +15,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app as app_module
+import src.web.identification as identification_module
+import src.web.jobs as _JOBS_MODULE
+import src.web.routes.transcription as _TRANSCRIPTION_MODULE
+import src.web.storage as _STORAGE_MODULE
 
-#: 作業ディレクトリ（``TEMP_DIR``）を保持するモジュール。
-_STORAGE_MODULE = app_module
-
-#: ジョブ保存先（``CLUSTERS_ROOT``）とメモリキャッシュを保持するモジュール。
-_JOBS_MODULE = app_module
-
-#: 文字起こしルートが参照する重い依存を保持するモジュール。
-_TRANSCRIPTION_MODULE = app_module
-
-#: 未知話者ラベル付けルートが参照する重い依存を保持するモジュール。
-_UNKNOWNS_MODULE = app_module
+#: 話者照合器の生成を差し替える対象。文字起こしとラベル付けの両方が経由する。
+_IDENTIFICATION_MODULE = identification_module
 
 
 @pytest.fixture
@@ -143,8 +138,9 @@ def 話者照合をモックにする(monkeypatch) -> FakeSpeakerIdentifier:
     """声紋モデルの読み込みを避け、常に Unknown を返す照合器に差し替える。"""
     identifier = FakeSpeakerIdentifier()
     monkeypatch.setenv("HF_TOKEN", "dummy-token")
-    for module in {_TRANSCRIPTION_MODULE, _UNKNOWNS_MODULE}:
-        monkeypatch.setattr(
-            module, "get_cached_speaker_identifier", lambda **kwargs: identifier
-        )
+    monkeypatch.setattr(
+        _IDENTIFICATION_MODULE,
+        "get_cached_speaker_identifier",
+        lambda **kwargs: identifier,
+    )
     return identifier

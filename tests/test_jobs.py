@@ -1,7 +1,6 @@
 """未知話者ラベリングのジョブ管理と CSV 再ラベルの特性テスト。
 
-対象は現在 app.py のモジュールプライベート関数だが、Phase 4 で
-src/web/jobs.py の公開関数になる予定。
+対象は :mod:`src.web.jobs` の公開関数。
 job_id のパストラバーサル検査（規約7.1）もここで固定する。
 """
 
@@ -13,7 +12,7 @@ import re
 
 import pytest
 
-import app
+import src.web.jobs as jobs
 
 
 @pytest.fixture(autouse=True)
@@ -33,14 +32,14 @@ def _read_csv(path) -> list[list[str]]:
 
 class TestジョブIDの発行:
     def test_日時と乱数からなるIDが払い出される(self):
-        job_id = app._new_job_id()
+        job_id = jobs.new_job_id()
 
         assert re.fullmatch(r"\d{8}-\d{6}-[0-9a-f]{6}", job_id), (
             f"想定外の書式: {job_id}"
         )
 
     def test_連続して発行してもIDが衝突しない(self):
-        ids = {app._new_job_id() for _ in range(20)}
+        ids = {jobs.new_job_id() for _ in range(20)}
 
         assert len(ids) == 20
 
@@ -49,9 +48,9 @@ class TestジョブIDの検証:
     """パストラバーサル対策。外部から渡る job_id を境界で弾く。"""
 
     def test_正当なIDはクラスタ保存先の直下に解決される(self):
-        path = app._job_dir("20260727-120000-abc123")
+        path = jobs.job_dir("20260727-120000-abc123")
 
-        assert path.parent == app.CLUSTERS_ROOT
+        assert path.parent == jobs.CLUSTERS_ROOT
         assert path.name == "20260727-120000-abc123"
 
     @pytest.mark.parametrize(
@@ -60,7 +59,7 @@ class TestジョブIDの検証:
     )
     def test_不正なIDはValueErrorになる(self, invalid_id):
         with pytest.raises(ValueError, match="無効な job_id"):
-            app._job_dir(invalid_id)
+            jobs.job_dir(invalid_id)
 
 
 class Testジョブの保存と読み込み:
@@ -68,45 +67,45 @@ class Testジョブの保存と読み込み:
         job_id = "20260727-120000-abc123"
         job = {"csv_path": "/tmp/x.csv", "csv_filename": "x.csv", "clusters": []}
 
-        app._save_job(job_id, job)
+        jobs.save_job(job_id, job)
 
-        assert app._load_job(job_id) == job
+        assert jobs.load_job(job_id) == job
 
     def test_保存先にjob_jsonが作られる(self):
         job_id = "20260727-120000-abc123"
 
-        app._save_job(job_id, {"csv_filename": "x.csv"})
+        jobs.save_job(job_id, {"csv_filename": "x.csv"})
 
         saved = json.loads(
-            (app.CLUSTERS_ROOT / job_id / "job.json").read_text(encoding="utf-8")
+            (jobs.CLUSTERS_ROOT / job_id / "job.json").read_text(encoding="utf-8")
         )
         assert saved == {"csv_filename": "x.csv"}
 
     def test_メモリキャッシュが空でもディスクから読み戻せる(self, monkeypatch):
         job_id = "20260727-120000-abc123"
-        app._save_job(job_id, {"csv_filename": "x.csv"})
-        monkeypatch.setattr(app, "_JOBS", {})
+        jobs.save_job(job_id, {"csv_filename": "x.csv"})
+        monkeypatch.setattr(jobs, "_JOBS", {})
 
-        assert app._load_job(job_id) == {"csv_filename": "x.csv"}
+        assert jobs.load_job(job_id) == {"csv_filename": "x.csv"}
 
     def test_旧フォーマットのジョブはファイル名が補完される(self):
         job_id = "20260727-120000-abc123"
-        job_dir = app.CLUSTERS_ROOT / job_id
+        job_dir = jobs.CLUSTERS_ROOT / job_id
         job_dir.mkdir(parents=True)
         (job_dir / "job.json").write_text(
             json.dumps({"csv_path": "/tmp/古い.csv"}), encoding="utf-8"
         )
 
-        job = app._load_job(job_id)
+        job = jobs.load_job(job_id)
 
         assert job["csv_filename"] == "古い.csv"
 
     def test_存在しないジョブはNoneを返す(self):
-        assert app._load_job("20260727-999999-zzzzzz") is None
+        assert jobs.load_job("20260727-999999-zzzzzz") is None
 
     def test_不正なジョブIDは例外ではなくNoneを返す(self):
         # ルート側で 404 相当の扱いにするため、読み込みでは例外にしない
-        assert app._load_job("../etc") is None
+        assert jobs.load_job("../etc") is None
 
 
 class Test話者名の再ラベル:
@@ -121,7 +120,7 @@ class Test話者名の再ラベル:
             ],
         )
 
-        replaced = app._relabel_csv(csv_path, {"Unknown_1": ("花子", 0.25)})
+        replaced = jobs.relabel_csv(csv_path, {"Unknown_1": ("花子", 0.25)})
 
         rows = _read_csv(csv_path)
         assert replaced == 1
@@ -139,7 +138,7 @@ class Test話者名の再ラベル:
             ],
         )
 
-        app._relabel_csv(csv_path, {"Unknown_1": ("花子", None)})
+        jobs.relabel_csv(csv_path, {"Unknown_1": ("花子", None)})
 
         assert _read_csv(csv_path)[1] == ["花子", ""]
 
@@ -150,7 +149,7 @@ class Test話者名の再ラベル:
             [["speaker"], ["Unknown_1"], ["Unknown_1"], ["Unknown_2"]],
         )
 
-        replaced = app._relabel_csv(csv_path, {"Unknown_1": ("花子", None)})
+        replaced = jobs.relabel_csv(csv_path, {"Unknown_1": ("花子", None)})
 
         assert replaced == 2
 
@@ -158,7 +157,7 @@ class Test話者名の再ラベル:
         csv_path = tmp_path / "result.csv"
         _write_csv(csv_path, [["speaker", "text"], ["Unknown_1", "こんにちは"]])
 
-        replaced = app._relabel_csv(csv_path, {"Unknown_1": ("花子", 0.25)})
+        replaced = jobs.relabel_csv(csv_path, {"Unknown_1": ("花子", 0.25)})
 
         assert replaced == 1
         assert _read_csv(csv_path)[1] == ["花子", "こんにちは"]
@@ -168,7 +167,7 @@ class Test話者名の再ラベル:
         _write_csv(csv_path, [["start", "text"], ["00:00:01:000", "こんにちは"]])
         before = csv_path.read_bytes()
 
-        replaced = app._relabel_csv(csv_path, {"Unknown_1": ("花子", None)})
+        replaced = jobs.relabel_csv(csv_path, {"Unknown_1": ("花子", None)})
 
         assert replaced == 0
         assert csv_path.read_bytes() == before
@@ -178,14 +177,14 @@ class Test話者名の再ラベル:
         _write_csv(csv_path, [["speaker"], ["Unknown_1"]])
         before = csv_path.read_bytes()
 
-        assert app._relabel_csv(csv_path, {}) == 0
+        assert jobs.relabel_csv(csv_path, {}) == 0
         assert csv_path.read_bytes() == before
 
     def test_CSVが存在しないときは0を返す(self, tmp_path):
-        assert app._relabel_csv(tmp_path / "missing.csv", {"a": ("b", None)}) == 0
+        assert jobs.relabel_csv(tmp_path / "missing.csv", {"a": ("b", None)}) == 0
 
     def test_ヘッダだけのCSVは0行置換になる(self, tmp_path):
         csv_path = tmp_path / "result.csv"
         _write_csv(csv_path, [["speaker", "text"]])
 
-        assert app._relabel_csv(csv_path, {"Unknown_1": ("花子", None)}) == 0
+        assert jobs.relabel_csv(csv_path, {"Unknown_1": ("花子", None)}) == 0

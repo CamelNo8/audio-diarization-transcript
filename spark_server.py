@@ -46,7 +46,7 @@ os.environ.setdefault("HF_HUB_OFFLINE", "0")
 WORK_DIR = Path(os.getenv("SPARK_WORK_DIR", "/tmp/spark_jobs"))
 WORK_DIR.mkdir(parents=True, exist_ok=True)
 
-# 背景音除去モデル（app.py の denoise_models と同じキー）
+# 背景音除去モデル（src/web/routes/transcription.py の DENOISE_MODELS と同じキー）
 DENOISE_MODELS = {
     "off": None,
     "fast": "Kim_Vocal_2.onnx",
