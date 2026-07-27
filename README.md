@@ -97,6 +97,21 @@ uv pip install -r requirements-spark.txt   # torch 3点は +cu129 でピン済�
 - **声紋DB は Spark 上の GUI（[`/databases`](http://127.0.0.1:8001/databases)）で作成・管理**します（DB は Spark に常駐。Mac からの scp は不要）。
 - 将来は Mac 側 `app.py` をプロキシ化して Spark を完全なヘッドレス API にする構成（大規模声紋DB向けの埋め込みキャッシュ含む）への拡張を予定しています。
 
+#### 推論 API としてだけ使う（Path 2 / 未使用）
+
+Spark を GUI 無しの推論 API として動かす経路も用意してあります（現在の運用は上の Path 1）。
+
+```bash
+# Spark 側
+uv run uvicorn src.spark.server:app --host 0.0.0.0 --port 8000
+
+# PC 側（動作確認）
+uv run python -m src.spark.client 音声.wav 3
+```
+
+話者照合（声紋DB）と GUI は PC 側に残す設計で、サーバーは cluster_id 付きセグメントと
+照合用の処理済み WAV だけを返します。接続先は環境変数 `SPARK_URL` で指定します。
+
 ---
 
 ## Hugging Face トークンの準備
@@ -234,3 +249,92 @@ type,speaker,contents
 dialogue,話者A,こんにちは、世界
 dialogue,話者B,お疲れ様です
 ```
+
+---
+
+## プロジェクト構成
+
+エントリポイントはルートに置き、実体は `src/` 配下に機能ごとのパッケージとして持ちます。
+
+```
+audio-diarization-transcript/
+├── main.py                     # CLI のエントリポイント（実体は src/cli/）
+├── app.py                      # Web のエントリポイント（実体は src/web/）
+├── spark-up.sh / -down.sh / -logs.sh   # Spark 上の app.py を Mac から操作する
+├── src/
+│   ├── config.py               # 定数・既定値・パス（しきい値/モデル名/出力名）
+│   ├── common/                 # 複数機能から使う共通処理
+│   │   ├── audio.py            #   ffmpeg 呼び出し（切り出し・16kHz mono 変換）
+│   │   ├── csv_io.py           #   BOM 付き UTF-8 CSV の読み書き
+│   │   ├── filenames.py        #   出力ファイル名の検証（パストラバーサル対策）
+│   │   ├── logging.py          #   ロギング設定と get_logger
+│   │   └── timecode.py         #   時刻文字列 ⇔ 秒の相互変換
+│   ├── cli/runner.py           # CLI 本体（引数解析 → AudioProcessor 起動）
+│   ├── diarization/            # 話者分離・話者照合
+│   │   ├── processor.py        #   AudioProcessor（全体の司令塔）
+│   │   ├── pipeline.py         #   pyannote パイプラインの読み込み・実行
+│   │   ├── vocals.py           #   背景音除去（audio-separator）
+│   │   ├── clusters.py         #   クラスタの代表区間・未知クラスタの永続化
+│   │   ├── speaker_identifier.py   # 埋め込み抽出とコサイン距離による照合
+│   │   ├── embedding_cache.py  #   話者エンベディングの永続キャッシュ
+│   │   ├── registry.py         #   声紋登録ファイルの収集・照合器のキャッシュ
+│   │   ├── transcript.py       #   文字起こし結果 → CSV
+│   │   ├── interactive.py      #   CLI での対話的な未知話者解決
+│   │   └── torch_compat.py     #   torch のバージョン差異の吸収
+│   ├── transcription/          # Whisper バックエンドの切り替え
+│   │   ├── backend.py          #   バックエンド選択
+│   │   ├── model_ids.py        #   モデルID の表記変換
+│   │   ├── mlx.py / faster_whisper.py / transformers_backend.py
+│   ├── subtitle/               # 台本と音声認識の対応付け
+│   │   ├── loader.py           #   台本CSV / SRT の読み込み
+│   │   ├── ngram.py            #   テキスト正規化と N-gram 生成
+│   │   ├── embedding.py        #   SentenceTransformer + FAISS 近傍探索
+│   │   ├── alignment.py        #   候補ペア生成と WLIS
+│   │   ├── report.py           #   マッチ結果の CSV 出力・集計表示
+│   │   ├── matcher.py          #   マッチングの入口（別プロセスで実行される）
+│   │   └── exporter.py         #   対応表CSV → 字幕SRT
+│   ├── voice_db/registry.py    # 声紋データベース（作成・話者の追加/削除/改名）
+│   ├── web/                    # FastAPI + htmx の Web アプリ層
+│   │   ├── application.py      #   ルータ登録（create_app）
+│   │   ├── templating.py       #   Jinja2 環境とエラー表示
+│   │   ├── storage.py          #   temp/ への保存とパス解決
+│   │   ├── jobs.py             #   ラベル付けジョブの発行・永続化・CSV再ラベル
+│   │   ├── converters.py       #   文字起こしCSV→SRT、テキスト→台本CSV
+│   │   ├── identification.py   #   HFトークン解決・照合器の生成
+│   │   ├── log_capture.py      #   処理ログの捕捉（画面表示用）
+│   │   ├── forms.py / errors.py
+│   │   └── routes/             #   pages / transcription / matching /
+│   │                           #   generation / databases / unknowns
+│   └── spark/                  # DGX Spark へ推論をオフロードする API（Path 2）
+│       ├── server.py           #   Spark 側で動かす FastAPI サーバー
+│       └── client.py           #   PC 側から呼ぶクライアント
+├── templates/                  # Jinja2 テンプレート（partials/ は htmx の差し替え片）
+├── tests/                      # pytest（重いモデルはモック）
+├── tools/                      # 調査用の使い捨てスクリプト
+├── temp/                       # 作業ディレクトリ（.gitignore 済み）
+└── voice_databases/            # 声紋DB（.gitignore 済み）
+```
+
+---
+
+## 開発
+
+テストとリンタは開発用の依存（`pytest` / `httpx` / `ruff`）を入れてから実行します。
+
+```bash
+uv sync --group dev
+# 標準の pip を使う場合: pip install pytest httpx ruff
+```
+
+```bash
+uv run pytest -q                  # テスト（重いモデルとネットワークはモック）
+uv run pytest tests/test_web_transcription.py -q   # ファイル単位
+uv run ruff check .               # リンタ
+uv run ruff format .              # フォーマッタ
+```
+
+- テストは**重いモデル（pyannote / Whisper / SentenceTransformer / audio-separator）を読み込みません**。
+  ロジック層とルーティングだけを検証するため、GPU も HF トークンも不要です。
+- テスト名は日本語で「何がどうなるか」を書いています。
+- Web ルートのテストで差し替えるモジュールは [`tests/conftest.py`](tests/conftest.py) に集約しています。
+  実装の置き場所を動かしたときは、まずここを直してください。
