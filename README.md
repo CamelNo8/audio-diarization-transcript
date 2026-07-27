@@ -187,8 +187,8 @@ uv run python app.py
 UI は横並び 3 カード構成：
 
 - **Step 1: 文字起こし & 話者分離** — 音声/動画 ＋ 声紋登録ファイル群（任意）から文字起こし SRT を生成（本文は `[speaker] text` 形式）。内部で `main.py` と同じ `AudioProcessor` を呼び出し、サイドカー CSV も `temp/` に保存（Unknown ラベル付け用）。詳細設定でしきい値・話者数・モデル名・HF_TOKEN・denoise を指定可能。
-- **Step 2: マッチング（対応表作成）** — 台本（`.csv`）または手動書き起こしテキスト（`.txt`）＋ Step 1 の SRT から、SentenceTransformer + FAISS + WLIS で対応表 CSV を生成（`subtitle_matcher.py`）。`.txt` は `話者:本文` / `（ト書き）` / `# 場面` を解釈して台本 CSV に自動変換。
-- **Step 3: 字幕生成** — 編集済み対応表 CSV から字幕 SRT を生成（`subtitle_exporter.py`）。
+- **Step 2: マッチング（対応表作成）** — 台本（`.csv`）または手動書き起こしテキスト（`.txt`）＋ Step 1 の SRT から、SentenceTransformer + FAISS + WLIS で対応表 CSV を生成（`src/subtitle/`）。`.txt` は `話者:本文` / `（ト書き）` / `# 場面` を解釈して台本 CSV に自動変換。
+- **Step 3: 字幕生成** — 編集済み対応表 CSV から字幕 SRT を生成（`src/subtitle/exporter.py`）。
 
 Step 1 → Step 2 はジョブ ID で連携し、生成物は `temp/` 配下に保存されます（再起動しても残ります）。
 文字起こしは同期処理のため、長尺で uvicorn のタイムアウトに当たる場合は `--timeout-keep-alive` 等を調整してください。
@@ -223,8 +223,8 @@ Step 1 の詳細設定で BGM/背景音の除去モードを選べます。
 ## CLI コマンド版（個別実行）
 
 ```bash
-uv run python subtitle_matcher.py 台本.csv 音声認識.srt 対応表.csv
-uv run python subtitle_exporter.py 対応表.csv 字幕.srt
+uv run python -m src.subtitle.matcher 台本.csv 音声認識.srt 対応表.csv
+uv run python -m src.subtitle.exporter 対応表.csv 字幕.srt
 ```
 
 台本 CSV の形式:

@@ -32,8 +32,7 @@ from main import (
     collect_registry_files,
     SUPPORTED_REGISTRY_EXTENSIONS,
 )
-from subtitle_matcher import run_matching_process
-from subtitle_exporter import (
+from src.subtitle.exporter import (
     load_subtitle_data,
     generate_srt_content,
     write_srt_file,
@@ -498,8 +497,7 @@ async def process_matching(
         import asyncio
         import sys
         proc = await asyncio.create_subprocess_exec(
-            sys.executable, "-u",
-            str(BASE_DIR / "subtitle_matcher.py"),
+            sys.executable, "-u", "-m", "src.subtitle.matcher",
             str(script_path), str(srt_path), str(output_path),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,

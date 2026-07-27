@@ -69,7 +69,7 @@ class Testコロン区切りミリ秒からSRT形式への変換:
 
 
 class Test字幕時刻文字列と秒の相互変換:
-    """subtitle_matcher の時刻ユーティリティ。"""
+    """字幕マッチング（現 src/subtitle/）が使う時刻ユーティリティ。"""
 
     @pytest.mark.parametrize(
         ("time_str", "expected"),

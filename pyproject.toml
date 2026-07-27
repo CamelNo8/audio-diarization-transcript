@@ -57,7 +57,7 @@ audio-transcribe = "main:main"
 
 [tool.hatch.build.targets.wheel]
 modules = ["main"]
-only-include = ["main.py", "app.py", "audio_processor.py", "speaker_identification.py", "subtitle_matcher.py", "subtitle_exporter.py"]
+only-include = ["main.py", "app.py", "audio_processor.py", "speaker_identification.py", "src"]
 
 # 開発用ツール。実行時には不要。
 #   uv pip install pytest httpx ruff
