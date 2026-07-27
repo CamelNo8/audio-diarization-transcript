@@ -55,8 +55,8 @@ def transcribe(
 def _get_model(model_name: str, device: str) -> Any:
     """キャッシュ済みのモデルを返す。無ければ読み込んでキャッシュする。"""
     compute_type = "float16" if device == "cuda" else "int8"
-    cache_key = (model_name, device, compute_type)
-    model = _MODEL_CACHE.get(cache_key)
+    requested_key = (model_name, device, compute_type)
+    model = _MODEL_CACHE.get(requested_key)
     if model is not None:
         return model
 
@@ -64,8 +64,12 @@ def _get_model(model_name: str, device: str) -> Any:
         f"Loading faster-whisper model ({model_name}, device={device}, "
         f"compute_type={compute_type})..."
     )
-    model, cache_key = _load_model(model_name, device, compute_type)
-    _MODEL_CACHE[cache_key] = model
+    model, actual_key = _load_model(model_name, device, compute_type)
+    # 実際に使えた設定と、要求された設定の両方にキャッシュを張る。
+    # 要求側を張らないと、フォールバックが起きた環境では毎回 CUDA 初期化を
+    # 試みては失敗し直すことになる。
+    _MODEL_CACHE[actual_key] = model
+    _MODEL_CACHE[requested_key] = model
     return model
 
 

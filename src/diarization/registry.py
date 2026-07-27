@@ -32,6 +32,9 @@ SUPPORTED_REGISTRY_EXTENSIONS = {
 #: モデル名 → 初期化済みの識別器
 _SPEAKER_IDENTIFIER_CACHE: dict[str, SpeakerIdentifier] = {}
 
+#: Hugging Face のオフライン取得を制御する環境変数。
+_HF_HUB_OFFLINE = "HF_HUB_OFFLINE"
+
 
 def get_cached_speaker_identifier(
     model_name: str, hf_token: str, threshold: float
@@ -69,13 +72,22 @@ def _create_identifier(
         )
     except Exception:
         # モデルがローカルに無い初回のみ、オフライン指定を一時的に外して取得する
-        os.environ["HF_HUB_OFFLINE"] = "0"
+        previous = os.environ.get(_HF_HUB_OFFLINE)
+        os.environ[_HF_HUB_OFFLINE] = "0"
         try:
             return SpeakerIdentifier(
                 model_name=model_name, hf_token=hf_token, threshold=threshold
             )
         finally:
-            os.environ["HF_HUB_OFFLINE"] = "1"
+            _restore_env(_HF_HUB_OFFLINE, previous)
+
+
+def _restore_env(key: str, previous: str | None) -> None:
+    """環境変数を元の状態へ戻す（元が未設定ならキーごと削除する）。"""
+    if previous is None:
+        os.environ.pop(key, None)
+    else:
+        os.environ[key] = previous
 
 
 def collect_registry_files(registry_dir: Path) -> dict[str, Path]:

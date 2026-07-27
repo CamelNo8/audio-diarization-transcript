@@ -51,19 +51,16 @@ def load_subtitle_data(input_csv_path: str) -> list[dict[str, str]]:
 
 
 def _is_usable_row(row: dict[str, str], line_no: int) -> bool:
-    """字幕にできる行かを判定し、できない場合は理由を警告に出す。"""
+    """字幕にできる行かを判定し、できない場合は理由を警告に出す。
+
+    ``speaker`` の空欄は仕様どおりの正常系なので警告しない
+    （対応表では普通に発生するため、警告すると本当の警告が埋もれる）。
+    """
     if not all(col in row for col in REQUIRED_COLUMNS):
         logger.warning(
             f"警告: {line_no}行目に必要な列が不足しています。スキップします。"
         )
         return False
-    if all(row[col] for col in REQUIRED_COLUMNS):
-        return True
-
-    logger.warning(
-        f"警告: {line_no}行目に空のデータがあります。スキップします。"
-        " (speakerは空でも可)"
-    )
     if not all(row[col] for col in _ESSENTIAL_COLUMNS):
         logger.warning(
             f"警告: {line_no}行目に必須データ（時間またはテキスト）がありません。"

@@ -7,10 +7,14 @@ Whisper の実推論は行わず、変換・分岐のロジックだけを検証
 
 from __future__ import annotations
 
+import sys
+import types
+
 import pytest
 import torch
 
 from src.transcription import backend as tb
+from src.transcription import faster_whisper as fw
 from src.transcription import model_ids
 
 
@@ -196,3 +200,61 @@ class Testデバイスの選択:
         monkeypatch.setattr(tb.torch.cuda, "is_available", lambda: False)
 
         assert tb.select_whisper_device(None) == "cpu"
+
+
+class TestFasterWhisperのモデルキャッシュ:
+    """_get_model — 読み込みが重いため、要求した設定でキャッシュが効くこと。
+
+    CTranslate2 が CUDA 非対応ビルドの環境（aarch64 など）では CPU へ
+    フォールバックする。このとき要求時のキーにもキャッシュを張らないと、
+    毎回 CUDA 初期化を試みては失敗し直すことになる。
+    """
+
+    @pytest.fixture(autouse=True)
+    def キャッシュを空にする(self, monkeypatch):
+        monkeypatch.setattr(fw, "_MODEL_CACHE", {})
+
+    @staticmethod
+    def _WhisperModelを差し替える(monkeypatch, *, cuda対応: bool):
+        """faster_whisper.WhisperModel を数える偽物に差し替える。"""
+        呼び出し = []
+
+        class _偽モデル:
+            def __init__(self, model_name, device, compute_type):
+                呼び出し.append((model_name, device, compute_type))
+                if device == "cuda" and not cuda対応:
+                    raise RuntimeError(
+                        "This CTranslate2 package was not compiled with CUDA support"
+                    )
+
+        偽モジュール = types.ModuleType("faster_whisper")
+        偽モジュール.WhisperModel = _偽モデル
+        monkeypatch.setitem(sys.modules, "faster_whisper", 偽モジュール)
+        return 呼び出し
+
+    def test_同じ設定の二回目は読み込まれない(self, monkeypatch):
+        呼び出し = self._WhisperModelを差し替える(monkeypatch, cuda対応=True)
+
+        最初 = fw._get_model("large-v3", "cuda")
+        二回目 = fw._get_model("large-v3", "cuda")
+
+        assert 最初 is 二回目
+        assert len(呼び出し) == 1
+
+    def test_CPUへ落ちたあとも二回目は読み込まれない(self, monkeypatch):
+        呼び出し = self._WhisperModelを差し替える(monkeypatch, cuda対応=False)
+
+        最初 = fw._get_model("large-v3", "cuda")
+        呼び出し.clear()
+        二回目 = fw._get_model("large-v3", "cuda")
+
+        assert 最初 is 二回目
+        assert 呼び出し == [], "CUDA 初期化を再試行してはならない"
+
+    def test_CPUへ落ちた場合はCPU設定でも同じモデルが返る(self, monkeypatch):
+        self._WhisperModelを差し替える(monkeypatch, cuda対応=False)
+
+        cuda要求 = fw._get_model("large-v3", "cuda")
+        cpu要求 = fw._get_model("large-v3", "cpu")
+
+        assert cuda要求 is cpu要求

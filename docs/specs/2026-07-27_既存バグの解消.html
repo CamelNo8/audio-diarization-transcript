@@ -33,7 +33,7 @@
 <h1>既存バグの解消 仕様書</h1>
 
 <div class="meta">
-  <strong>ステータス:</strong> <span class="status s-doing">進行中</span>（承認済み / B-1〜B-3 完了 · 次は B-4）<br>
+  <strong>ステータス:</strong> <span class="status s-doing">進行中</span>（承認済み / B-1〜B-7 完了 · 残りは仕上げ）<br>
   <strong>最終更新日:</strong> 2026-07-27<br>
   <strong>対象リポジトリ:</strong> <code>audio-diarization-transcript</code>（ブランチ <code>main</code>）<br>
   <strong>関連仕様書:</strong> <code>docs/specs/2026-07-27_コードベース全体リファクタリング.html</code>（Phase 0〜3 完了・次は Phase 4）
@@ -620,13 +620,18 @@ B-2 の distil モデルについても、モデル ID の解決が正しくな�
 </div>
 
 <div class="phase">
-<h3>B-4〜B-7 小さいバグ <span class="status s-todo">未着手</span></h3>
+<h3>B-4〜B-7 小さいバグ <span class="status s-done">完了</span></h3>
 <ul class="todo">
-  <li>☐ <span class="status s-todo">未着手</span> B-4: T-5 を書く → <code>report.py</code> の 0 除算を修正 → コミット</li>
-  <li>☐ <span class="status s-todo">未着手</span> B-5: T-6 を書く → <code>faster_whisper.py</code> のキャッシュを修正 → コミット</li>
-  <li>☐ <span class="status s-todo">未着手</span> B-6: T-7 を書く → <code>registry.py</code> の環境変数復元を修正 → コミット</li>
-  <li>☐ <span class="status s-todo">未着手</span> B-7: T-8 を書く → <code>exporter.py</code> の判定順を修正 → コミット</li>
+  <li>☑ <span class="status s-done">完了</span> B-4: T-5（新規6件）で Red 3件 → <code>report.py</code> に <code>_使用率()</code> を切り出して 0 除算を解消</li>
+  <li>☑ <span class="status s-done">完了</span> B-5: T-6（新規3件）で Red 1件 → <code>faster_whisper.py</code> が要求キーにもキャッシュを張るよう修正</li>
+  <li>☑ <span class="status s-done">完了</span> B-6: T-7（新規6件）で Red 3件 → <code>registry.py</code> に <code>_restore_env()</code> を追加して元の値へ復元</li>
+  <li>☑ <span class="status s-done">完了</span> B-7: T-8（既存へ追加）で Red 1件 → <code>exporter.py</code> の判定順を入れ替え、話者名の空欄では警告しない</li>
+  <li>☑ <span class="status s-done">完了</span> 全テスト緑を確認（332 → <strong>351件 passed</strong>）してコミット</li>
 </ul>
+<p><strong>B-6 の判断:</strong> 元が未設定だった場合はキーごと削除して戻す。
+<code>""</code> を入れて戻したことにすると、未設定と空文字を区別するライブラリで挙動が変わるため。</p>
+<p><strong>B-5 の判断:</strong> 実際に使えた設定のキーと要求時のキーの<strong>両方</strong>にキャッシュを張る。
+要求側だけに張ると、あとから CPU を明示指定した呼び出しで読み込みが重複する。</p>
 </div>
 
 <div class="phase">

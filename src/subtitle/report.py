@@ -344,10 +344,22 @@ def _log_statistics(
     logger.info("--- 統計情報 ---")
     logger.info(f"マッチング数: {len(matched_pairs)}組")
     logger.info(
-        f"使用された台本要素: {len(matched_script_indices)}/{len(scripts)} "
-        f"({len(matched_script_indices) / len(scripts) * 100:.1f}%)"
+        f"使用された台本要素: {_使用率(len(matched_script_indices), len(scripts))}"
     )
     logger.info(
-        f"使用された音声認識要素: {len(matched_stt_indices)}/{len(stt)} "
-        f"({len(matched_stt_indices) / len(stt) * 100:.1f}%)"
+        f"使用された音声認識要素: {_使用率(len(matched_stt_indices), len(stt))}"
     )
+
+
+def _使用率(使用数: int, 総数: int) -> str:
+    """``使用数/総数 (百分率)`` の形に整える。
+
+    Args:
+        使用数: 使われた要素の数。
+        総数: 全要素の数。0 でもよい。
+
+    Returns:
+        表示用の文字列。総数が 0 のときは ``0.0%`` とする（0 除算を避ける）。
+    """
+    百分率 = 使用数 / 総数 * 100 if 総数 else 0.0
+    return f"{使用数}/{総数} ({百分率:.1f}%)"

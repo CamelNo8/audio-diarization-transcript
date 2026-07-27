@@ -395,6 +395,26 @@ class Test対応表からの字幕データ読み込み:
 
         assert len(load_subtitle_data(str(path))) == 1
 
+    def test_話者が空欄でも警告は出ない(self, tmp_path, caplog):
+        # 話者名の空欄は仕様どおりの正常系。採用するのに「スキップします」と
+        # 警告すると、本当の警告が埋もれる。
+        path = self._対応表を書く(
+            tmp_path / "in.csv",
+            [
+                {
+                    "start_time": "00:00:01,000",
+                    "end_time": "00:00:02,000",
+                    "speaker": "",
+                    "subtitle_text": "……",
+                }
+            ],
+        )
+
+        with caplog.at_level("WARNING"):
+            load_subtitle_data(str(path))
+
+        assert caplog.records == []
+
     @pytest.mark.parametrize("欠損列", ["start_time", "end_time", "subtitle_text"])
     def test_時刻か本文が空の行は捨てられる(self, tmp_path, 欠損列):
         行 = {
@@ -407,6 +427,22 @@ class Test対応表からの字幕データ読み込み:
         path = self._対応表を書く(tmp_path / "in.csv", [行])
 
         assert load_subtitle_data(str(path)) == []
+
+    @pytest.mark.parametrize("欠損列", ["start_time", "end_time", "subtitle_text"])
+    def test_時刻か本文が空の行はスキップを警告する(self, tmp_path, caplog, 欠損列):
+        行 = {
+            "start_time": "00:00:01,000",
+            "end_time": "00:00:02,000",
+            "speaker": "太郎",
+            "subtitle_text": "おはよう",
+        }
+        行[欠損列] = ""
+        path = self._対応表を書く(tmp_path / "in.csv", [行])
+
+        with caplog.at_level("WARNING"):
+            load_subtitle_data(str(path))
+
+        assert "スキップ" in caplog.text
 
     def test_必要な列がないCSVからは何も読めない(self, tmp_path):
         path = self._対応表を書く(
