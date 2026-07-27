@@ -1,0 +1,40 @@
+{# 文字起こしの進捗パネル。
+   自分自身を hx-swap="outerHTML" で置き換えるので、完了時に返る断片に
+   hx-trigger が無ければポーリングは自然に止まる（JavaScript は不要）。 #}
+<div hx-get="/process/transcription/{{ job_id }}/status"
+     hx-trigger="load delay:{{ poll_interval }}"
+     hx-swap="outerHTML"
+     class="bg-blue-50 border-l-4 border-blue-500 p-4 rounded-r shadow-sm animate-fade-in-up">
+    <div class="flex">
+        <div class="flex-shrink-0">
+            <svg class="h-5 w-5 text-blue-500 animate-spin" viewBox="0 0 24 24" fill="none">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+            </svg>
+        </div>
+        <div class="ml-3 w-full">
+            <h3 class="text-sm font-medium text-blue-800">文字起こし中…</h3>
+            <div class="mt-2 text-sm text-blue-700">
+                <p>音声の長さによっては数分から数十分かかります。</p>
+                <p class="mt-1 text-xs text-blue-600">
+                    このページを開いたままにしてください。閉じても処理は続きますが、
+                    結果はこの画面にしか出ません。
+                </p>
+            </div>
+
+            {% if log_excerpt %}
+            <details class="mt-4" open>
+                <summary class="cursor-pointer text-xs text-blue-600 select-none">📝 処理ログ</summary>
+                <pre class="mt-2 text-xs bg-white p-2 rounded border border-blue-200 max-h-64 overflow-auto whitespace-pre-wrap">{{ log_excerpt }}</pre>
+            </details>
+            {% endif %}
+        </div>
+    </div>
+</div>
+<style>
+    @keyframes fadeInUp {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    .animate-fade-in-up { animation: fadeInUp 0.5s ease-out forwards; }
+</style>

@@ -125,11 +125,44 @@ class FakeSpeakerIdentifier:
 
 @pytest.fixture
 def 文字起こしをモックにする(monkeypatch) -> FakeAudioProcessor:
-    """重い文字起こし処理と ffmpeg 検出・HF トークンをテスト用に差し替える。"""
+    """重い文字起こし処理と ffmpeg 検出・HF トークンをテスト用に差し替える。
+
+    ワーカースレッドも**同期実行**に差し替える。別スレッドのままだと
+    「POST が返った時点で処理が終わっているか」がタイミング次第になり、
+    テストが不安定になるため。
+    """
     monkeypatch.setattr(_TRANSCRIPTION_MODULE, "AudioProcessor", FakeAudioProcessor)
     monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
     monkeypatch.setenv("HF_TOKEN", "dummy-token")
+    monkeypatch.setattr(_TRANSCRIPTION_MODULE, "start_worker", _start_worker_同期)
     return FakeAudioProcessor
+
+
+def _start_worker_同期(run) -> None:
+    """ワーカースレッドを起こさず、その場で処理を終わらせる。"""
+    _TRANSCRIPTION_MODULE.jobs.save_job(
+        run.job_id, _TRANSCRIPTION_MODULE._initial_job(run)
+    )
+    _TRANSCRIPTION_MODULE.run_job(run)
+
+
+@pytest.fixture
+def ワーカーを起動しない(monkeypatch) -> list:
+    """ジョブ登録だけ行い、処理は走らせない。進捗表示の検証に使う。
+
+    Returns:
+        起動を要求された実行条件のリスト。
+    """
+    requested = []
+
+    def 記録するだけ(run) -> None:
+        requested.append(run)
+        _TRANSCRIPTION_MODULE.jobs.save_job(
+            run.job_id, _TRANSCRIPTION_MODULE._initial_job(run)
+        )
+
+    monkeypatch.setattr(_TRANSCRIPTION_MODULE, "start_worker", 記録するだけ)
+    return requested
 
 
 @pytest.fixture
