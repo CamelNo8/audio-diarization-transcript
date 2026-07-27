@@ -55,11 +55,27 @@ class TestFasterWhisperのモデル名変換:
     def test_判別できない指定はlarge_v3になる(self):
         assert model_ids.to_faster_whisper_model("unknown-model") == "large-v3"
 
-    def test_distil指定はlarge_v3として解決される既存挙動(self):
-        # FASTER_WHISPER_SIZES で "large-v3" が "distil-large-v3" より前に
-        # あるため先に一致する。
-        # 既存の振る舞いなのでそのまま固定する（別途報告済み）。
-        assert model_ids.to_faster_whisper_model("distil-large-v3") == "large-v3"
+    @pytest.mark.parametrize(
+        "model_id", ["distil-large-v3", "distil-large-v2", "DISTIL-LARGE-V3"]
+    )
+    def test_distil指定はdistilのまま解決される(self, model_id):
+        assert model_ids.to_faster_whisper_model(model_id) == model_id.lower()
+
+    def test_サイズ名は他を含むものほど先に並んでいる(self):
+        """並び順そのものが仕様。
+
+        判定が部分一致（``size in lowered``）のため、``distil-large-v3`` が
+        ``large-v3`` より後ろにあると永久に選ばれない。順序を崩したら
+        気付けるようにここで固定する。
+        """
+        sizes = model_ids.FASTER_WHISPER_SIZES
+
+        for i, size in enumerate(sizes):
+            後ろに並ぶ候補 = sizes[i + 1 :]
+            自分を含む候補 = [他 for 他 in 後ろに並ぶ候補 if size in 他]
+            assert 自分を含む候補 == [], (
+                f"{size!r} は {自分を含む候補} より後ろに置く必要がある"
+            )
 
 
 class TestMLXリポジトリ変換:
@@ -85,6 +101,18 @@ class TestMLXリポジトリ変換:
     def test_判別できない指定はlarge_v3のmlxリポジトリになる(self):
         assert model_ids.to_mlx_repo("unknown") == "mlx-community/whisper-large-v3-mlx"
 
+    @pytest.mark.parametrize("model_id", ["distil-large-v3", "distil-large-v2"])
+    def test_distil指定は警告つきでlarge_v3のmlxリポジトリになる(
+        self, model_id, caplog
+    ):
+        # mlx-community に distil の対応リポジトリが無いため既定へ落とす。
+        # 黙って別モデルに差し替えないよう、警告を出すことまで固定する。
+        with caplog.at_level("WARNING"):
+            repo = model_ids.to_mlx_repo(model_id)
+
+        assert repo == "mlx-community/whisper-large-v3-mlx"
+        assert "distil" in caplog.text.lower()
+
 
 class TestHuggingFaceリポジトリ変換:
     """_to_hf_whisper_repo — transformers バックエンド用のリポジトリを決める。"""
@@ -108,6 +136,16 @@ class TestHuggingFaceリポジトリ変換:
 
     def test_判別できない指定はlarge_v3になる(self):
         assert model_ids.to_hf_whisper_repo("unknown") == "openai/whisper-large-v3"
+
+    @pytest.mark.parametrize(
+        ("model_id", "expected"),
+        [
+            ("distil-large-v3", "distil-whisper/distil-large-v3"),
+            ("distil-large-v2", "distil-whisper/distil-large-v2"),
+        ],
+    )
+    def test_distilの品質キーがdistilリポジトリになる(self, model_id, expected):
+        assert model_ids.to_hf_whisper_repo(model_id) == expected
 
 
 class Testバックエンドの選択:

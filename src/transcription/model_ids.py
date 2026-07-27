@@ -6,14 +6,24 @@
 
 from __future__ import annotations
 
-#: faster-whisper が解釈できるモデルサイズ名（長い名前から先にマッチさせる）
+from src.common.logging import get_logger
+
+logger = get_logger(__name__)
+
+#: faster-whisper が解釈できるモデルサイズ名。
+#:
+#: 判定は部分一致（``size in lowered``）で先頭から走査するため、
+#: **他の候補を部分文字列として含む名前ほど先に置く**こと。
+#: 例えば ``distil-large-v3`` は ``large-v3`` を含むので、
+#: ``large-v3`` より後ろにあると永久に選ばれない。
+#: この並び順はテストで固定している。
 FASTER_WHISPER_SIZES = [
+    "distil-large-v3",
+    "distil-large-v2",
     "large-v3-turbo",
     "large-v3",
     "large-v2",
     "large-v1",
-    "distil-large-v3",
-    "distil-large-v2",
     "turbo",
     "large",
     "medium",
@@ -83,10 +93,20 @@ def to_mlx_repo(model_id: str) -> str:
 
     Returns:
         mlx-community のリポジトリ名。``mlx`` を含む指定はそのまま返す。
+
+    Note:
+        mlx-community には distil 系の対応リポジトリが無いため、distil を
+        指定された場合は警告を出したうえで既定のサイズへ落とす。
     """
     if "mlx" in model_id.lower():
         return model_id
-    return _MLX_REPO.get(to_faster_whisper_model(model_id), _MLX_REPO[DEFAULT_SIZE])
+    size = to_faster_whisper_model(model_id)
+    if size not in _MLX_REPO:
+        logger.warning(
+            f"mlx-whisper は {size} に対応していないため {DEFAULT_SIZE} を使用します。"
+        )
+        size = DEFAULT_SIZE
+    return _MLX_REPO[size]
 
 
 def to_hf_whisper_repo(model_id: str) -> str:

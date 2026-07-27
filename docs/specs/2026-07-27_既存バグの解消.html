@@ -33,7 +33,7 @@
 <h1>既存バグの解消 仕様書</h1>
 
 <div class="meta">
-  <strong>ステータス:</strong> <span class="status s-doing">進行中</span>（承認済み / B-1 完了 · 次は B-2）<br>
+  <strong>ステータス:</strong> <span class="status s-doing">進行中</span>（承認済み / B-1・B-2 完了 · 次は B-3）<br>
   <strong>最終更新日:</strong> 2026-07-27<br>
   <strong>対象リポジトリ:</strong> <code>audio-diarization-transcript</code>（ブランチ <code>main</code>）<br>
   <strong>関連仕様書:</strong> <code>docs/specs/2026-07-27_コードベース全体リファクタリング.html</code>（Phase 0〜3 完了・次は Phase 4）
@@ -586,13 +586,22 @@ B-2 の distil モデルについても、モデル ID の解決が正しくな�
 </div>
 
 <div class="phase">
-<h3>B-2 distil モデルID の解決 <span class="status s-todo">未着手</span></h3>
+<h3>B-2 distil モデルID の解決 <span class="status s-done">完了</span></h3>
 <ul class="todo">
-  <li>☐ <span class="status s-todo">未着手</span> T-3: 既存の「現状固定」テストを正しい期待値へ書き換え、<strong>失敗する</strong>ことを確認</li>
-  <li>☐ <span class="status s-todo">未着手</span> <code>FASTER_WHISPER_SIZES</code> の並べ替え＋順序を守る回帰テスト</li>
-  <li>☐ <span class="status s-todo">未着手</span> mlx 経路の警告ログを追加</li>
-  <li>☐ <span class="status s-todo">未着手</span> 全テスト緑を確認してコミット</li>
+  <li>☑ <span class="status s-done">完了</span> T-3: <code>test_distil指定はlarge_v3として解決される既存挙動</code> を正しい期待値へ書き換え、<strong>8件が失敗する</strong>ことを確認</li>
+  <li>☑ <span class="status s-done">完了</span> <code>FASTER_WHISPER_SIZES</code> の並べ替え＋<strong>順序そのものを検証する回帰テスト</strong>を追加</li>
+  <li>☑ <span class="status s-done">完了</span> mlx 経路の警告ログを追加（<code>caplog</code> で検証）</li>
+  <li>☑ <span class="status s-done">完了</span> 全テスト緑を確認（321 → <strong>328件 passed</strong>）してコミット</li>
 </ul>
+<p><strong>修正後の解決結果（実行確認）:</strong></p>
+<pre>'distil-large-v3'  → size='distil-large-v3'  hf='distil-whisper/distil-large-v3'
+'distil-large-v2'  → size='distil-large-v2'  hf='distil-whisper/distil-large-v2'
+'large-v3'         → size='large-v3'         hf='openai/whisper-large-v3'     （回帰なし）
+'large-v3-turbo'   → size='large-v3-turbo'   hf='openai/whisper-large-v3-turbo'（回帰なし）
+'turbo'            → size='turbo'            hf='openai/whisper-large-v3-turbo'（回帰なし）</pre>
+<p><strong>回帰テストの作り方:</strong> 「distil が先」と直接書くのではなく、
+<strong>リスト内のどの名前も、自分を部分文字列として含む名前より後ろに来ない</strong>という不変条件で検証した。
+今後サイズ名を追加したときにも同じ落とし穴を検出できる。</p>
 </div>
 
 <div class="phase">
