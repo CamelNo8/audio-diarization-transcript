@@ -1,0 +1,293 @@
+<meta charset="utf-8">
+<title>懸念事項の解消（#2 ジョブ状態 / #3 非同期化 / #5 ゴミ箱） 仕様書</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+         line-height: 1.8; max-width: 1000px; margin: 0 auto; padding: 2rem 1.2rem; }
+  h1 { border-bottom: 3px solid #4a7; padding-bottom: .4rem; }
+  h2 { border-left: 6px solid #4a7; padding-left: .6rem; margin-top: 2.4rem; }
+  h3 { margin-top: 1.6rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: .94rem; }
+  th, td { border: 1px solid #8884; padding: .45rem .6rem; text-align: left; vertical-align: top; }
+  th { background: #4a71; }
+  code, pre { font-family: "SF Mono", Menlo, monospace; font-size: .88rem; }
+  pre { background: #8881; padding: .9rem; overflow-x: auto; border-radius: 6px; }
+  .status { display: inline-block; padding: .1rem .55rem; border-radius: 4px;
+            font-size: .8rem; font-weight: 700; border: 1px solid currentColor; }
+  .s-todo { color: #a60; }
+  .s-doing { color: #06a; }
+  .s-done { color: #070; }
+  .meta { background: #4a71; padding: .8rem 1rem; border-radius: 6px; }
+  .warn { border-left: 5px solid #c62; background: #c621; padding: .7rem 1rem; border-radius: 4px; }
+  .note { border-left: 5px solid #06a; background: #06a1; padding: .7rem 1rem; border-radius: 4px; }
+  ul.todo { list-style: none; padding-left: .4rem; }
+  ul.todo li { margin: .35rem 0; }
+  .phase { margin-top: 1.4rem; }
+</style>
+
+<h1>懸念事項の解消 仕様書</h1>
+
+<div class="meta">
+  <strong>ステータス:</strong> <span class="status s-doing">進行中</span>（2026-07-28 承認済み / Step A 完了）<br>
+  <strong>作成日:</strong> 2026-07-28<br>
+  <strong>対象リポジトリ:</strong> <code>audio-diarization-transcript</code>（ブランチ <code>main</code>）<br>
+  <strong>前提:</strong> <code>docs/specs/archive/2026-07-27_コードベース全体リファクタリング.html</code> の
+  「発見した既存バグ・設計上の懸念」7件のうち <strong>#2・#3・#5</strong> を解消する。
+  残る #1・#6・#7 は着手しない。
+</div>
+
+<h2>1. 背景・目的</h2>
+
+<p>
+リファクタリング（Phase 0〜5）の過程で見つけた懸念のうち、クライアント判断により
+以下の3件を解消する。いずれも「動いてはいるが、条件が変わると壊れる／取り返しがつかない」類のもの。
+</p>
+
+<table>
+  <tr><th>#</th><th>懸念</th><th>選択された方針</th></tr>
+  <tr><td>2</td>
+      <td>ジョブ状態がプロセス内メモリにある。Web はファイルにも書くがメモリを優先して読むため、
+          複数ワーカーで起動すると食い違う。Spark サーバーはメモリのみで、再起動でジョブが消える。</td>
+      <td><strong>Web と Spark の両方</strong>をディスク永続化する。</td></tr>
+  <tr><td>3</td>
+      <td>文字起こし（Step 1）が同期処理。長尺だと接続が切れうる。</td>
+      <td><strong>非同期ジョブ化する。</strong> job_id を即返し、htmx がポーリングして進捗を表示する。</td></tr>
+  <tr><td>5</td>
+      <td>声紋DB・話者の削除が不可逆。</td>
+      <td><strong>ゴミ箱へ退避する。</strong> 確認ダイアログを押し間違えても手で戻せるようにする。</td></tr>
+</table>
+
+<div class="warn">
+<strong>仕様書の訂正（2026-07-28）:</strong> 前仕様書の懸念#5 に
+「GUI 側にも確認ダイアログは無い」と書いたが、これは<strong>誤り</strong>。
+<code>templates/partials/db_list.html:27</code>（DB削除）と
+<code>templates/partials/db_speakers.html:32</code>（話者削除）の双方に
+htmx の <code>hx-confirm</code> が付いている。
+本作業で解消するのは「確認して消したあと復旧できない」点だけで、確認ダイアログは追加しない。
+</div>
+
+<h2>2. 実装前に判明した追加の問題</h2>
+
+<div class="warn">
+<strong>Step 1 の実行中、Web アプリ全体が応答しなくなっている（#3 の実害）。</strong><br>
+<code>process_transcription</code> は <code>async def</code> でありながら、中で
+<code>AudioProcessor</code>（ブロッキング処理）を直接呼んでいる。asyncio のイベントループが
+その間ずっと占有されるため、<strong>文字起こし中は <code>/</code> も声紋DB画面も開けない</strong>。
+接続タイムアウトより先に、こちらのほうが体感される問題である。
+非同期ジョブ化ではワーカースレッドへ処理を逃がすので、これも同時に解消する。
+</div>
+
+<h2>3. 設計</h2>
+
+<h3>3-1. #3 文字起こしの非同期ジョブ化</h3>
+
+<p>Spark サーバー（<code>src/spark/server.py</code>）と同じ「job_id を即返して裏で処理」方式に揃える。</p>
+
+<pre>POST /process/transcription
+      ├─ 入力検証（ffmpeg / HFトークン / 音声 / 声紋DB）はここで同期に行う
+      │  → 不正なら今までどおり partials/error.html を返す
+      ├─ job_id を発行し、status="queued" で job.json を書く
+      ├─ ワーカースレッドを起動して処理を任せる
+      └─ partials/transcription_progress.html を返す（htmx のポーリング付き）
+
+GET  /process/transcription/{job_id}/status   ← htmx が2秒ごとに叩く
+      ├─ running  → transcription_progress.html（ポーリング継続）
+      ├─ done     → success_transcription.html（ポーリング属性なし → 自然に停止）
+      └─ error    → error.html（同上）</pre>
+
+<table>
+  <tr><th>項目</th><th>方針</th></tr>
+  <tr><td>ポーリングの止め方</td>
+      <td>htmx の自己置換（<code>hx-swap="outerHTML"</code>）を使う。完了時に返す断片には
+          <code>hx-trigger</code> を含めないため、追加の JavaScript なしでポーリングが止まる。</td></tr>
+  <tr><td>ワーカーの起こし方</td>
+      <td><code>threading.Thread(daemon=True)</code>。<code>AudioProcessor</code> は CPU/GPU 依存の
+          ブロッキング処理なので、<code>BackgroundTasks</code>（同一タスク内で走る）ではなくスレッドに逃がす。
+          Spark サーバーと同じ形にする。</td></tr>
+  <tr><td>進捗ログ</td>
+      <td>現行の <code>capture_root_logs()</code> はルートロガーにハンドラを足す。
+          スレッド化すると<strong>他ジョブのログが混ざる</strong>ため、
+          ワーカースレッドの <code>thread ident</code> で絞る <code>logging.Filter</code> を足す。
+          捕捉したログは job.json に書き、進捗画面に末尾を出す。</td></tr>
+  <tr><td>同時実行</td>
+      <td><strong>本作業では直列化しない。</strong> 現状も同時に複数投げれば重い処理が並走する点は同じで、
+          キューを入れると設計判断（同時実行数・待ち表示）が増えるため。
+          スレッド分離により、少なくとも並走中も画面は応答するようになる。</td></tr>
+  <tr><td>プロセス終了時</td>
+      <td>daemon スレッドなのでサーバー停止で打ち切られる。<code>status</code> は
+          <code>"running"</code> のまま残る。再起動後にその表示になったら、やり直していただく想定
+          （README に明記する）。</td></tr>
+</table>
+
+<h3>3-2. #2 ジョブ状態のディスク永続化</h3>
+
+<p><strong>Web（<code>src/web/jobs.py</code>）</strong></p>
+<ul>
+  <li>メモリキャッシュ <code>_JOBS</code> を<strong>廃止</strong>し、<code>job.json</code> を唯一の真実にする。
+      読むたびにファイルから読む。ジョブ1件は数KBで、1リクエストに1回程度なので実測上の問題はない。</li>
+  <li>書き込みを<strong>アトミック</strong>にする。ワーカースレッドが書いている最中に
+      ポーリングのリクエストが読むため、現行の「開いて上書き」だと壊れた JSON を読みうる。
+      一時ファイルに書いて <code>os.replace()</code> で差し替える。</li>
+  <li>部分更新用に <code>update_job(job_id, **fields)</code> を足す（status とログの更新に使う）。</li>
+</ul>
+
+<p><strong>Spark（<code>src/spark/server.py</code>）</strong></p>
+<ul>
+  <li><code>JOBS</code> 辞書を廃止し、<code>WORK_DIR/&lt;job_id&gt;.json</code> に読み書きする。
+      再起動してもジョブの結果が消えない。</li>
+  <li>Web と同じアトミック書き込みを使う。<code>src/common/</code> に共通の
+      JSON 読み書きを置き、Web / Spark の両方から使う（規約4.3）。</li>
+  <li><code>_JOBS_LOCK</code> は引き続きスレッド間の直列化に使う。</li>
+</ul>
+
+<h3>3-3. #5 声紋DB・話者の削除をゴミ箱へ</h3>
+
+<pre>voice_databases/
+├── テストDB/            ← 通常のDB
+└── .trash/              ← 退避先（新設）
+    ├── 20260728-143000_テストDB/        ← DB ごと削除した場合
+    └── 20260728-143512_テストDB_太郎.wav ← 話者1件を削除した場合</pre>
+
+<table>
+  <tr><th>項目</th><th>方針</th></tr>
+  <tr><td>退避方法</td><td><code>shutil.rmtree</code> / <code>unlink</code> をやめ、
+      <code>shutil.move</code> で <code>.trash/</code> 配下へ移す。名前は
+      <code>&lt;YYYYMMDD-HHMMSS&gt;_&lt;元の名前&gt;</code>。同秒に同名を消した場合は連番を付ける。</td></tr>
+  <tr><td>一覧からの除外</td><td><code>list_databases()</code> は
+      <strong>ドットで始まる名前を読み飛ばす</strong>。これをしないと <code>.trash</code> が
+      DB として画面に出てしまう。</td></tr>
+  <tr><td>名前の検証</td><td><code>sanitize_name()</code> が
+      <strong>ドットで始まる名前を弾く</strong>ようにする。<code>.trash</code> を DB として
+      作成・参照・削除できてしまう経路を塞ぐため（規約7.1）。
+      既存の「<code>.</code> / <code>..</code> を弾く」検査を一般化する形になる。</td></tr>
+  <tr><td>GUI の復元機能</td><td><strong>作らない。</strong> ディレクトリを手で戻すだけで復旧できるため。
+      README に場所と戻し方を書く。</td></tr>
+  <tr><td>自動削除</td><td><strong>しない。</strong> 溜まったら手で消す運用にする
+      （音声データの保存期間を本作業で変えないため。規約7.4）。</td></tr>
+</table>
+
+<div class="note">
+<strong>振る舞いの変化（意図的）:</strong>
+削除後もディスク使用量が減らなくなる。声紋 WAV は1件あたり小さいが、
+DB を作り直しては消す使い方をすると <code>.trash/</code> が育つ。
+README に「不要になったら <code>voice_databases/.trash/</code> を手で空にしてください」と明記する。
+</div>
+
+<h2>4. 影響範囲</h2>
+
+<table>
+  <tr><th>ファイル</th><th>変更</th><th>該当</th></tr>
+  <tr><td><code>src/common/json_io.py</code></td><td><strong>新規</strong>。アトミックな JSON 読み書き</td><td>#2</td></tr>
+  <tr><td><code>src/web/jobs.py</code></td><td><code>_JOBS</code> 廃止・<code>update_job()</code> 追加・アトミック化</td><td>#2</td></tr>
+  <tr><td><code>src/web/routes/transcription.py</code></td><td>ルートを2本に分割し、処理をワーカースレッドへ</td><td>#3</td></tr>
+  <tr><td><code>src/web/log_capture.py</code></td><td>スレッドで絞るフィルタを追加</td><td>#3</td></tr>
+  <tr><td><code>templates/partials/transcription_progress.html</code></td><td><strong>新規</strong>。進捗表示とポーリング</td><td>#3</td></tr>
+  <tr><td><code>templates/index.html</code></td><td>Step 1 フォームの <code>hx-*</code> を調整（インジケータの扱い）</td><td>#3</td></tr>
+  <tr><td><code>src/spark/server.py</code></td><td><code>JOBS</code> 辞書 → ファイル</td><td>#2</td></tr>
+  <tr><td><code>src/voice_db/registry.py</code></td><td>削除をゴミ箱移動に・一覧と名前検証の調整</td><td>#5</td></tr>
+  <tr><td><code>tests/conftest.py</code></td><td><code>_JOBS</code> 差し替えの廃止、ワーカーの同期実行フィクスチャ</td><td>#2 #3</td></tr>
+  <tr><td><code>tests/test_jobs.py</code> ほか</td><td>期待値の更新と新規テスト</td><td>全</td></tr>
+  <tr><td><code>README.md</code></td><td>非同期化・ゴミ箱・単一ワーカーの注意を追記</td><td>全</td></tr>
+</table>
+
+<h2>5. テスト計画</h2>
+
+<p>重いモデルは従来どおりモックする（規約2.5）。テスト名は日本語で書く（規約2.2）。</p>
+
+<table>
+  <tr><th>#</th><th>ファイル</th><th>検証内容</th></tr>
+  <tr><td>14</td><td><code>tests/test_json_io.py</code></td>
+      <td>アトミック書き込み。正常: 書いて読み戻せる。境界: 既存ファイルの上書き。
+          異常: 書き込み途中で失敗しても元のファイルが壊れない（一時ファイルへ書く性質の確認）。</td></tr>
+  <tr><td>15</td><td><code>tests/test_jobs.py</code>（更新）</td>
+      <td>メモリキャッシュ廃止後も往復できる。<strong>別プロセス相当（キャッシュ無し）でも読める</strong>。
+          <code>update_job()</code> が既存フィールドを保ったまま一部だけ更新する。</td></tr>
+  <tr><td>16</td><td><code>tests/test_web_transcription.py</code>（更新）</td>
+      <td>POST が即座に進捗断片を返す。入力エラーは従来どおり同期でエラー断片。
+          <code>status</code> が running → 進捗断片、done → 成功断片、error → エラー断片。
+          完了断片にポーリング属性が<strong>含まれない</strong>こと。
+          異常: 存在しない job_id の status 取得。</td></tr>
+  <tr><td>17</td><td><code>tests/test_voice_db.py</code>（更新）</td>
+      <td>DB削除でディレクトリが <code>.trash/</code> へ移る（消えていない）。話者削除も同様。
+          <code>.trash</code> が DB 一覧に出ない。<code>.trash</code> を DB 名として指定できない。
+          境界: 同名を続けて削除しても衝突しない。</td></tr>
+  <tr><td>18</td><td><code>tests/test_spark_jobs.py</code></td>
+      <td>Spark サーバーのジョブがファイルに残る。<code>JOBS</code> 相当の状態を
+          読み直せる。異常: 未知の job_id は 404。</td></tr>
+</table>
+
+<h3>完了の判定</h3>
+<ul>
+  <li>既存 406件を含む全テストが緑（実行出力を提示する）</li>
+  <li><code>ruff check .</code> / <code>ruff format --check .</code> がリポジトリ全体で通る</li>
+  <li><code>python app.py</code> と <code>uvicorn app:app</code> の両方で <code>/</code> が 200</li>
+  <li><strong>文字起こし実行中に <code>/</code> が 200 を返す</strong>（#3 の実害が消えたことの確認）</li>
+</ul>
+
+<div class="warn">
+<strong>検証範囲の限界（自己申告）:</strong> 重いモデルはモックするため、
+<strong>実音声での通し確認は含まない</strong>。特に #3 は「長尺で切れないこと」が目的だが、
+それを証明できるのは実際の長尺音声だけである。実装後、Spark で1本流していただきたい。
+</div>
+
+<h2>6. セキュリティ考慮</h2>
+
+<table>
+  <tr><th>項目</th><th>方針</th></tr>
+  <tr><td>7.1 入力検証</td><td><code>job_id</code> のパストラバーサル検査（<code>job_dir()</code>）は現行のまま維持する。
+      新しい <code>/status</code> ルートも同じ検査を通す。DB名の検証はドット始まりを弾く方向に<strong>強める</strong>。</td></tr>
+  <tr><td>7.2 秘匿情報</td><td>HF トークンは job.json に<strong>書かない</strong>（現行も書いていない）。
+      ワーカースレッドへは引数で渡す。進捗ログに新たにトークンやパスが出ないことを確認する。</td></tr>
+  <tr><td>7.4 データ保護</td><td>保存先は現行どおり <code>temp/</code> と <code>voice_databases/</code> に限定する。
+      <code>.trash/</code> は <code>voice_databases/</code> の中に置くため、<code>.gitignore</code> の対象に既に含まれる。
+      <strong>保存期間だけは延びる</strong>（削除しても残るため）。上記のとおり README に明記する。</td></tr>
+  <tr><td>7.5 Web</td><td>進捗断片も Jinja2 の自動エスケープに任せる。<code>| safe</code> は追加しない。</td></tr>
+  <tr><td>7.6 依存追加</td><td><strong>なし。</strong> 標準ライブラリ（<code>threading</code> / <code>os.replace</code>）と htmx の既存機能だけで実現する。</td></tr>
+</table>
+
+<h2>7. ToDo</h2>
+
+<div class="phase">
+<h3>Step A — 基盤（#2） <span class="status s-done">完了</span></h3>
+<ul class="todo">
+  <li>☑ <span class="status s-done">完了</span> 特性テスト #14（アトミック JSON）を作成し、<code>src/common/json_io.py</code> を実装</li>
+  <li>☑ <span class="status s-done">完了</span> <code>src/web/jobs.py</code> のメモリキャッシュを廃止し <code>update_job()</code> を追加（テスト #15）</li>
+  <li>☑ <span class="status s-done">完了</span> <code>src/spark/server.py</code> のジョブをファイル化（テスト #18）</li>
+</ul>
+</div>
+
+<div class="phase">
+<h3>Step B — 非同期ジョブ化（#3） <span class="status s-todo">未着手</span></h3>
+<ul class="todo">
+  <li>☐ <span class="status s-todo">未着手</span> <code>capture_root_logs()</code> にスレッド絞り込みを追加</li>
+  <li>☐ <span class="status s-todo">未着手</span> <code>POST /process/transcription</code> を「検証 → job 登録 → スレッド起動 → 進捗断片」に組み替え</li>
+  <li>☐ <span class="status s-todo">未着手</span> <code>GET /process/transcription/{job_id}/status</code> と進捗テンプレートを追加</li>
+  <li>☐ <span class="status s-todo">未着手</span> Step 1 フォームの htmx 属性を調整し、テスト #16 を作成</li>
+  <li>☐ <span class="status s-todo">未着手</span> 文字起こし中に <code>/</code> が応答することを実機で確認</li>
+</ul>
+</div>
+
+<div class="phase">
+<h3>Step C — ゴミ箱（#5） <span class="status s-todo">未着手</span></h3>
+<ul class="todo">
+  <li>☐ <span class="status s-todo">未着手</span> テスト #17 を作成し、<code>delete_database</code> / <code>delete_speaker</code> を退避方式に変更</li>
+  <li>☐ <span class="status s-todo">未着手</span> 一覧の除外と <code>sanitize_name()</code> の強化</li>
+</ul>
+</div>
+
+<div class="phase">
+<h3>Step D — 仕上げ <span class="status s-todo">未着手</span></h3>
+<ul class="todo">
+  <li>☐ <span class="status s-todo">未着手</span> README を更新（非同期化・ゴミ箱・単一ワーカーの注意）</li>
+  <li>☐ <span class="status s-todo">未着手</span> 全テスト緑・<code>ruff</code> 全体通過・起動確認・報告</li>
+  <li>☐ <span class="status s-todo">未着手</span> 全 ToDo 完了 → ステータスを「完了」に更新し <code>docs/specs/archive/</code> へ移動</li>
+</ul>
+</div>
+
+<h2>8. 未確定事項・クライアント確認待ち</h2>
+<ul>
+  <li><strong>本仕様書の承認</strong>（承認後に実装へ入る）。</li>
+  <li>ポーリング間隔は 2 秒を既定とする。長尺で叩きすぎが気になる場合は調整する。</li>
+  <li>実装後、<strong>Spark で長尺の実音声を1本流して確認</strong>していただきたい
+      （非同期化の目的そのものはモックでは検証できないため）。</li>
+</ul>

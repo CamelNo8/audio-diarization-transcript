@@ -25,6 +25,7 @@ PC から音声をアップロードすると、以下を GPU(CUDA) で実行し
 from __future__ import annotations
 
 import os
+import re
 import threading
 import traceback
 import uuid
@@ -35,6 +36,7 @@ from typing import Optional
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
+from src.common.json_io import read_json, write_json
 from src.common.logging import configure_logging, get_logger
 from src.config import DENOISE_MODELS
 from src.diarization import processor as audio_processor
@@ -51,10 +53,31 @@ WORK_DIR.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="Spark Diarization/Transcription API")
 
-# job_id -> {"status", "error", "result", "vocals"}
-# 最小構成のためメモリ保持（プロセス再起動で消える）。
-JOBS: dict[str, dict] = {}
+# ジョブ状態は WORK_DIR/<job_id>.json に持つ（メモリに載せない）。
+# 処理は裏スレッドで走り、その間に別のリクエストが状態を読むため、
+# メモリキャッシュを持つと食い違う。プロセス再起動でも結果が消えない。
+_JOB_ID_RE = re.compile(r"^[A-Za-z0-9_\-]+$")
 _JOBS_LOCK = threading.Lock()
+
+
+def job_path(job_id: str) -> Path:
+    """ジョブ状態ファイルのパスを返す。
+
+    Raises:
+        ValueError: ``job_id`` にパス区切りなど想定外の文字が含まれる場合。
+    """
+    safe = Path(job_id).name
+    if safe != job_id or not _JOB_ID_RE.match(job_id):
+        raise ValueError(f"無効な job_id: {job_id!r}")
+    return WORK_DIR / f"{safe}.json"
+
+
+def read_job(job_id: str) -> Optional[dict]:
+    """ジョブ状態を読む。見つからない・ID が不正なら ``None``。"""
+    try:
+        return read_json(job_path(job_id))
+    except ValueError:
+        return None
 
 
 @dataclass
@@ -85,12 +108,15 @@ class _JobRequest:
 
 
 def _update_job(job_id: str, **fields) -> None:
+    """ジョブ状態の一部を更新する。読んで・足して・書き戻す。"""
     with _JOBS_LOCK:
-        JOBS[job_id].update(fields)
+        job = read_job(job_id) or {}
+        job.update(fields)
+        write_json(job_path(job_id), job)
 
 
 def _run_job(job: _JobRequest) -> None:
-    """1件のジョブを最後まで処理し、状態を :data:`JOBS` に反映する。"""
+    """1件のジョブを最後まで処理し、状態をジョブ状態ファイルへ反映する。"""
     try:
         _update_job(job.job_id, status="running")
         result = _transcribe(job)
@@ -171,12 +197,16 @@ async def create_job(
     wav_path.write_bytes(await file.read())
 
     with _JOBS_LOCK:
-        JOBS[job_id] = {
-            "status": "queued",
-            "error": None,
-            "result": None,
-            "vocals": None,
-        }
+        write_json(
+            job_path(job_id),
+            {
+                "job_id": job_id,
+                "status": "queued",
+                "error": None,
+                "result": None,
+                "vocals": None,
+            },
+        )
 
     threading.Thread(
         target=_run_job,
@@ -187,19 +217,27 @@ async def create_job(
     return {"job_id": job_id, "status": "queued"}
 
 
-@app.get("/jobs/{job_id}")
-def job_status(job_id: str):
-    job = JOBS.get(job_id)
+def _require_job(job_id: str) -> dict:
+    """ジョブ状態を読む。
+
+    Raises:
+        HTTPException: 見つからない場合（404）。
+    """
+    job = read_job(job_id)
     if job is None:
         raise HTTPException(404, "unknown job_id")
+    return job
+
+
+@app.get("/jobs/{job_id}")
+def job_status(job_id: str):
+    job = _require_job(job_id)
     return {"status": job["status"], "error": job["error"]}
 
 
 @app.get("/jobs/{job_id}/result")
 def job_result(job_id: str):
-    job = JOBS.get(job_id)
-    if job is None:
-        raise HTTPException(404, "unknown job_id")
+    job = _require_job(job_id)
     if job["status"] == "error":
         raise HTTPException(500, job["error"] or "job failed")
     if job["status"] != "done":
@@ -209,9 +247,7 @@ def job_result(job_id: str):
 
 @app.get("/jobs/{job_id}/vocals")
 def job_vocals(job_id: str):
-    job = JOBS.get(job_id)
-    if job is None:
-        raise HTTPException(404, "unknown job_id")
+    job = _require_job(job_id)
     if job["status"] != "done":
         raise HTTPException(409, f"not ready (status={job['status']})")
     vocals = job.get("vocals")

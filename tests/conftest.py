@@ -44,10 +44,9 @@ def 作業ディレクトリ(tmp_path, monkeypatch) -> Path:
 
 @pytest.fixture
 def ジョブ保存先(tmp_path, monkeypatch) -> Path:
-    """実リポジトリの temp/clusters を汚さないよう保存先とキャッシュを差し替える。"""
+    """実リポジトリの temp/clusters を汚さないよう保存先を差し替える。"""
     clusters_root = tmp_path / "clusters"
     monkeypatch.setattr(_JOBS_MODULE, "CLUSTERS_ROOT", clusters_root)
-    monkeypatch.setattr(_JOBS_MODULE, "_JOBS", {})
     return clusters_root
 
 

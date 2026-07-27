@@ -1,7 +1,12 @@
-"""未知話者ラベル付けジョブの状態管理。
+"""文字起こしジョブの状態管理。
 
-Step 1 の結果（CSV / SRT のパスと未解決クラスタ）を ``job.json`` に永続化し、
-Step 1 の後からでもラベル付けできるようにする。
+Step 1 の進捗と結果（CSV / SRT のパスと未解決クラスタ）を ``job.json`` に
+永続化し、処理中の進捗確認と、Step 1 の後からの話者ラベル付けに使う。
+
+**ディスクが唯一の真実**であり、メモリにキャッシュしない。文字起こしは
+ワーカースレッドで走り、その間に別のリクエストが状態を読むため、キャッシュを
+持つと書き手と読み手で食い違う（uvicorn を複数ワーカーで起動した場合はプロセスも
+別になる）。書き込みは :func:`src.common.json_io.write_json` でアトミックに行う。
 
 ``job_id`` は URL から渡ってくるため、パスに使う前に必ず :func:`job_dir` で
 検証する（規約7.1）。
@@ -9,7 +14,6 @@ Step 1 の後からでもラベル付けできるようにする。
 
 from __future__ import annotations
 
-import json
 import re
 import uuid
 from datetime import datetime
@@ -17,6 +21,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 from src.common.csv_io import read_rows, write_rows
+from src.common.json_io import read_json, write_json
 from src.config import CLUSTERS_ROOT as _CONFIGURED_CLUSTERS_ROOT
 
 #: ジョブの保存先ルート。テストではこのモジュール属性を差し替える。
@@ -25,8 +30,10 @@ CLUSTERS_ROOT = _CONFIGURED_CLUSTERS_ROOT
 #: ``job_id`` として許す文字（英数字・アンダースコア・ハイフンのみ）。
 _JOB_ID_RE = re.compile(r"^[A-Za-z0-9_\-]+$")
 
-#: job_id -> ジョブ状態のメモリキャッシュ。実体は job.json。
-_JOBS: Dict[str, Dict[str, Any]] = {}
+#: ジョブの状態。
+STATUS_RUNNING = "running"
+STATUS_DONE = "done"
+STATUS_ERROR = "error"
 
 
 def new_job_id() -> str:
@@ -48,12 +55,8 @@ def job_dir(job_id: str) -> Path:
 
 
 def save_job(job_id: str, job: Dict[str, Any]) -> None:
-    """ジョブ状態をメモリキャッシュとディスクの両方へ書く。"""
-    _JOBS[job_id] = job
-    path = job_dir(job_id) / "job.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(job, f, ensure_ascii=False, indent=2, default=str)
+    """ジョブ状態を ``job.json`` へ書く（アトミック）。"""
+    write_json(job_dir(job_id) / "job.json", job)
 
 
 def load_job(job_id: str) -> Optional[Dict[str, Any]]:
@@ -61,20 +64,34 @@ def load_job(job_id: str) -> Optional[Dict[str, Any]]:
 
     ルート側で 404 相当の扱いにするため、ID が不正でも例外にはしない。
     """
-    if job_id in _JOBS:
-        return _JOBS[job_id]
     try:
         path = job_dir(job_id) / "job.json"
     except ValueError:
         return None
-    if not path.exists():
+    job = read_json(path)
+    if job is None:
         return None
-    with open(path, encoding="utf-8") as f:
-        job = json.load(f)
     # 旧フォーマットのジョブには csv_filename が無いため csv_path から補完する
     if not job.get("csv_filename") and job.get("csv_path"):
         job["csv_filename"] = Path(job["csv_path"]).name
-    _JOBS[job_id] = job
+    return job
+
+
+def update_job(job_id: str, **fields: Any) -> Optional[Dict[str, Any]]:
+    """ジョブの一部のフィールドだけを更新する。
+
+    読んで・足して・書き戻す。ジョブ1件を触るのは同時に1スレッドだけ
+    （文字起こしのワーカー、またはラベル付けのリクエスト）なので、
+    ここでは追加のロックを取らない。
+
+    Returns:
+        更新後のジョブ。ジョブが無ければ ``None``。
+    """
+    job = load_job(job_id)
+    if job is None:
+        return None
+    job.update(fields)
+    save_job(job_id, job)
     return job
 
 

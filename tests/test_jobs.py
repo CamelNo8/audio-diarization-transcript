@@ -81,12 +81,17 @@ class Testジョブの保存と読み込み:
         )
         assert saved == {"csv_filename": "x.csv"}
 
-    def test_メモリキャッシュが空でもディスクから読み戻せる(self, monkeypatch):
+    def test_ファイルを直接書き換えると読み込み結果も変わる(self):
+        # メモリにキャッシュしていないこと。別プロセスのワーカーが書いた内容が
+        # そのまま見えないと、進捗のポーリングが古い状態を返し続けてしまう。
         job_id = "20260727-120000-abc123"
-        jobs.save_job(job_id, {"csv_filename": "x.csv"})
-        monkeypatch.setattr(jobs, "_JOBS", {})
+        jobs.save_job(job_id, {"status": "running"})
 
-        assert jobs.load_job(job_id) == {"csv_filename": "x.csv"}
+        (jobs.CLUSTERS_ROOT / job_id / "job.json").write_text(
+            json.dumps({"status": "done"}), encoding="utf-8"
+        )
+
+        assert jobs.load_job(job_id) == {"status": "done"}
 
     def test_旧フォーマットのジョブはファイル名が補完される(self):
         job_id = "20260727-120000-abc123"
@@ -106,6 +111,33 @@ class Testジョブの保存と読み込み:
     def test_不正なジョブIDは例外ではなくNoneを返す(self):
         # ルート側で 404 相当の扱いにするため、読み込みでは例外にしない
         assert jobs.load_job("../etc") is None
+
+
+class Testジョブの部分更新:
+    def test_指定したフィールドだけが書き換わる(self):
+        job_id = "20260727-120000-abc123"
+        jobs.save_job(job_id, {"status": "running", "csv_filename": "x.csv"})
+
+        jobs.update_job(job_id, status="done")
+
+        assert jobs.load_job(job_id) == {"status": "done", "csv_filename": "x.csv"}
+
+    def test_新しいフィールドは追加される(self):
+        job_id = "20260727-120000-abc123"
+        jobs.save_job(job_id, {"status": "running"})
+
+        jobs.update_job(job_id, error="失敗しました")
+
+        assert jobs.load_job(job_id)["error"] == "失敗しました"
+
+    def test_更新後のジョブが返る(self):
+        job_id = "20260727-120000-abc123"
+        jobs.save_job(job_id, {"status": "running"})
+
+        assert jobs.update_job(job_id, status="done")["status"] == "done"
+
+    def test_存在しないジョブの更新はNoneを返す(self):
+        assert jobs.update_job("20260727-999999-zzzzzz", status="done") is None
 
 
 class Test話者名の再ラベル:
