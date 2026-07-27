@@ -33,7 +33,7 @@
 <h1>既存バグの解消 仕様書</h1>
 
 <div class="meta">
-  <strong>ステータス:</strong> <span class="status s-doing">進行中</span>（承認済み / B-1・B-2 完了 · 次は B-3）<br>
+  <strong>ステータス:</strong> <span class="status s-doing">進行中</span>（承認済み / B-1〜B-3 完了 · 次は B-4）<br>
   <strong>最終更新日:</strong> 2026-07-27<br>
   <strong>対象リポジトリ:</strong> <code>audio-diarization-transcript</code>（ブランチ <code>main</code>）<br>
   <strong>関連仕様書:</strong> <code>docs/specs/2026-07-27_コードベース全体リファクタリング.html</code>（Phase 0〜3 完了・次は Phase 4）
@@ -605,12 +605,18 @@ B-2 の distil モデルについても、モデル ID の解決が正しくな�
 </div>
 
 <div class="phase">
-<h3>B-3 発話 0 件時の CSV 未生成 <span class="status s-todo">未着手</span></h3>
+<h3>B-3 発話 0 件時の CSV 未生成 <span class="status s-done">完了</span></h3>
 <ul class="todo">
-  <li>☐ <span class="status s-todo">未着手</span> <strong>方針（ヘッダのみ CSV を出して成功）の承認を得る</strong></li>
-  <li>☐ <span class="status s-todo">未着手</span> T-4: セグメント 0 件のテストを書き、<strong>失敗する</strong>ことを確認</li>
-  <li>☐ <span class="status s-todo">未着手</span> <code>processor.py</code> を修正し、全テスト緑を確認してコミット</li>
+  <li>☑ <span class="status s-done">完了</span> 方針（ヘッダのみ CSV を出して成功）の承認を得た（2026-07-27）</li>
+  <li>☑ <span class="status s-done">完了</span> T-4: <code>tests/test_diarization_processor.py</code> を新設し、<strong>失敗する</strong>ことを確認</li>
+  <li>☑ <span class="status s-done">完了</span> <code>processor.py</code> を修正し、全テスト緑を確認（328 → <strong>332件 passed</strong>）してコミット</li>
 </ul>
+<p><strong>修正内容:</strong> セグメント 0 件のときの早期 <code>return True</code> を削除し、
+警告ログだけ残して <code>_write_transcript_csv</code> へ進むようにした。
+<code>build_rows</code> はもともとヘッダ行から組み立てるため、0 件ならヘッダのみの CSV が出る。</p>
+<p><strong>あわせて固定した既存の振る舞い（回帰防止）:</strong>
+セグメント有りのときの行の組み立て、本文が空白のみのセグメントは行にしないこと、
+話者分離に失敗したときは CSV を作らず <code>False</code> を返すこと。</p>
 </div>
 
 <div class="phase">

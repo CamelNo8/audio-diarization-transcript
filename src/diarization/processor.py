@@ -155,6 +155,11 @@ class AudioProcessor:
 
         Returns:
             すべて成功したら True。途中で失敗したら False。
+
+        Note:
+            発話が 1 件も検出されなくても失敗とはせず、ヘッダ行だけの CSV を
+            書き出す。「完走したら CSV が存在する」という後段（CLI・Web UI）の
+            前提を満たすため。
         """
         self.prepare_audio()
 
@@ -171,7 +176,6 @@ class AudioProcessor:
 
         if not segments:
             logger.warning("No speech segments detected by Whisper.")
-            return True
 
         return self._write_transcript_csv(diarization, segments)
 
