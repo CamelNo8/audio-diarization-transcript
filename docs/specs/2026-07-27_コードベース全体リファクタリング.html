@@ -371,7 +371,7 @@ import とインターフェースの整合までしか保証されない。実�
   <li>☑ <span class="status s-done">完了</span> テスト全緑を確認（<strong>197件 passed</strong>）・
       <code>ruff check</code> / <code>ruff format</code> 通過・
       <strong>実データでの通し確認</strong>（下記）</li>
-  <li>☐ <span class="status s-todo">未着手</span> フェーズ報告・承認</li>
+  <li>☑ <span class="status s-done">完了</span> フェーズ報告・承認（commit <code>cd8619d</code> を origin/main へ push 済み）</li>
 </ul>
 
 <p><strong>Phase 2 の検証（実行結果）:</strong></p>
@@ -420,7 +420,7 @@ import とインターフェースの整合までしか保証されない。実�
   <li>☑ <span class="status s-done">完了</span> CLI を <code>src/cli/runner.py</code> へ移し、ルート <code>main.py</code> は
       36行の薄いエントリポイント（ロギング・<code>.env</code>・<code>HF_HUB_OFFLINE</code> の設定のみ）に</li>
   <li>☑ <span class="status s-done">完了</span> テスト全緑 + <code>python main.py --help</code> を確認（下記）</li>
-  <li>☐ <span class="status s-todo">未着手</span> フェーズ報告・承認</li>
+  <li>☑ <span class="status s-done">完了</span> フェーズ報告・承認（commit <code>af928eb</code>）</li>
 </ul>
 
 <p><strong>Phase 3 の検証（実行結果）:</strong></p>
@@ -460,6 +460,31 @@ import とインターフェースの整合までしか保証されない。実�
 </div>
 
 <div class="phase">
+<div class="warn">
+<strong>中断: 2026-07-27。次のセッションはここから再開する。</strong>
+<ul>
+  <li><strong>再開位置: Phase 4（Web アプリ層の分割）の最初のタスクから。</strong> Phase 0〜3 は完了済み・push 済み。</li>
+  <li>Phase 4 の着手前に、クライアントへ着手可否を確認する（フェーズごとの承認が本作業の取り決め）。</li>
+  <li>再開時の健全性確認コマンド:
+      <code>.venv/bin/python -m pytest -q</code>（<strong>285件 passed</strong> が現状）、
+      <code>.venv/bin/ruff check src/ tests/</code>、
+      <code>.venv/bin/python -c "import app"</code>。</li>
+  <li>Phase 4 の最初の作業は<strong>特性テスト #12（TestClient スモーク）の作成</strong>
+      （分割前の現行 <code>app.py</code> に対して緑を確認してから分割する）。</li>
+  <li>Phase 4 で扱う持ち越し事項:
+      <ul>
+        <li><code>app.py</code> は現在 <strong>1000行</strong>。<code>src/web/</code> へ分割後もルートの
+            <code>app.py</code> は薄いエントリポイントとして残す（<code>spark-up.sh</code> が
+            <code>.venv/bin/python app.py</code> を直接起動しているため）。</li>
+        <li><code>app.py</code> の <code>ruff check</code> は未通過（E501 が17件）。分割時に解消する。</li>
+        <li><code>app.py</code> は <code>logging</code> モジュールを直接使っている箇所が残っている。
+            Phase 1・3 と同様に <code>src/common/logging.get_logger</code> へ揃える。</li>
+      </ul></li>
+  <li>Phase 3 で報告した既存バグ（<code>distil-large-v3</code> のモデルID解決）は<strong>未修正のまま</strong>。
+      修正するかはクライアントの判断待ち（本リファクタのスコープ外）。</li>
+</ul>
+</div>
+
 <h3>Phase 4 — Web アプリ層の分割 <span class="status s-todo">未着手</span></h3>
 <ul class="todo">
   <li>☐ <span class="status s-todo">未着手</span> 特性テスト #12（TestClient スモーク）を作成し、現行 <code>app.py</code> で緑を確認</li>
