@@ -35,7 +35,7 @@ from typing import Optional
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
-import audio_processor
+from src.diarization import processor as audio_processor
 
 logging.basicConfig(level=logging.INFO)
 

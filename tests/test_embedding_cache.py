@@ -1,6 +1,6 @@
-"""話者エンベディング永続キャッシュの特性テスト（現 embedding_cache.py）。
+"""話者エンベディング永続キャッシュの特性テスト。
 
-Phase 3 で src/diarization/embedding_cache.py へ移設する。
+Phase 3 で src/diarization/embedding_cache.py へ移設した。
 キャッシュのキーはファイル内容ハッシュであり、内容が同じなら
 別パスでもヒットする（＝再計算しない）ことが本機能の要。
 """
@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from embedding_cache import EmbeddingCache, default_cache_dir
+from src.diarization.embedding_cache import EmbeddingCache, default_cache_dir
 
 
 class _埋め込み計算のスパイ:

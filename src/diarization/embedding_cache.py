@@ -16,10 +16,10 @@ namespace には呼び出し側がモデル名・前処理パラメータ・ス�
   EMBEDDING_CACHE_DIR  キャッシュ保存先（既定: <repo>/embedding_cache）
   EMBEDDING_CACHE_OFF  "1" でキャッシュ無効化（常に compute_fn を呼ぶ）
 """
+
 from __future__ import annotations
 
 import hashlib
-import logging
 import os
 import re
 from pathlib import Path
@@ -27,7 +27,10 @@ from typing import Callable, Optional
 
 import numpy as np
 
+from src.common.logging import get_logger
 from src.config import DEFAULT_EMBEDDING_CACHE_DIR
+
+logger = get_logger(__name__)
 
 _HASH_CHUNK = 1 << 20  # 1 MiB
 _SAFE_NAMESPACE_RE = re.compile(r"[^A-Za-z0-9._-]+")
@@ -59,8 +62,12 @@ def _safe_namespace(namespace: str) -> str:
 class EmbeddingCache:
     """ファイル内容ハッシュをキーにした埋め込みの永続キャッシュ。"""
 
-    def __init__(self, cache_dir: Optional[Path] = None, enabled: Optional[bool] = None):
-        self.cache_dir = Path(cache_dir) if cache_dir is not None else default_cache_dir()
+    def __init__(
+        self, cache_dir: Optional[Path] = None, enabled: Optional[bool] = None
+    ):
+        self.cache_dir = (
+            Path(cache_dir) if cache_dir is not None else default_cache_dir()
+        )
         if enabled is None:
             enabled = os.getenv("EMBEDDING_CACHE_OFF", "") != "1"
         self.enabled = enabled
@@ -88,31 +95,57 @@ class EmbeddingCache:
         try:
             file_hash = _hash_file(audio_path)
         except OSError as e:
-            logging.warning(f"埋め込みキャッシュ: ハッシュ計算に失敗（計算にフォールバック）: {e}")
+            logger.warning(
+                f"埋め込みキャッシュ: ハッシュ計算に失敗（計算にフォールバック）: {e}"
+            )
             return compute_fn(audio_path)
 
         entry = self._entry_path(namespace, file_hash)
-        if entry.exists():
-            try:
-                emb = np.load(entry)
-                self.hits += 1
-                logging.info(f"埋め込みキャッシュ HIT: {audio_path.name} [{file_hash[:12]}]")
-                return emb
-            except (OSError, ValueError) as e:
-                logging.warning(f"埋め込みキャッシュ: 破損エントリを無視して再計算します ({entry}): {e}")
+        cached = self._load_entry(entry, audio_path, file_hash)
+        if cached is not None:
+            return cached
 
         emb = compute_fn(audio_path)
         self.misses += 1
+        self._store_entry(entry, emb, audio_path, file_hash)
+        return emb
+
+    def _load_entry(
+        self, entry: Path, audio_path: Path, file_hash: str
+    ) -> Optional[np.ndarray]:
+        """キャッシュエントリを読む。無い／壊れている場合は ``None``。"""
+        if not entry.exists():
+            return None
+        try:
+            emb = np.load(entry)
+        except (OSError, ValueError) as e:
+            logger.warning(
+                f"埋め込みキャッシュ: 破損エントリを無視して再計算します ({entry}): {e}"
+            )
+            return None
+        self.hits += 1
+        logger.info(f"埋め込みキャッシュ HIT: {audio_path.name} [{file_hash[:12]}]")
+        return emb
+
+    def _store_entry(
+        self, entry: Path, emb: np.ndarray, audio_path: Path, file_hash: str
+    ) -> None:
+        """計算結果をキャッシュへ保存する。保存に失敗しても処理は続行する。"""
         try:
             entry.parent.mkdir(parents=True, exist_ok=True)
-            # np.save は拡張子が .npy でないと .npy を付け足すので、tmp も .npy で終わらせる。
+            # np.save は拡張子が .npy でないと .npy を付け足すため、
+            # tmp も .npy で終わらせる。
             tmp = entry.parent / f".{file_hash}.{os.getpid()}.tmp.npy"
             np.save(tmp, emb)
             os.replace(tmp, entry)  # 原子的に確定（部分書き込みを避ける）
-            logging.info(f"埋め込みキャッシュ STORE: {audio_path.name} [{file_hash[:12]}]")
+            logger.info(
+                f"埋め込みキャッシュ STORE: {audio_path.name} [{file_hash[:12]}]"
+            )
         except OSError as e:
-            logging.warning(f"埋め込みキャッシュ: 保存に失敗しました（今回は計算結果を返します）: {e}")
-        return emb
+            logger.warning(
+                f"埋め込みキャッシュ: 保存に失敗しました"
+                f"（今回は計算結果を返します）: {e}"
+            )
 
     def stats(self) -> dict:
         return {"hits": self.hits, "misses": self.misses, "enabled": self.enabled}

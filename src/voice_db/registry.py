@@ -2,6 +2,7 @@
 
 voice_databases/<DB名>/<話者名>.<ext> の構造で永続管理する。
 """
+
 from __future__ import annotations
 
 import os
@@ -12,7 +13,16 @@ from typing import List, Dict, Optional
 from src.config import DEFAULT_VOICE_DB_ROOT, INVALID_NAME_CHARS
 
 SUPPORTED_AUDIO_EXTENSIONS = {
-    ".wav", ".mp3", ".m4a", ".flac", ".mp4", ".mov", ".ogg", ".opus", ".aac", ".wma",
+    ".wav",
+    ".mp3",
+    ".m4a",
+    ".flac",
+    ".mp4",
+    ".mov",
+    ".ogg",
+    ".opus",
+    ".aac",
+    ".wma",
 }
 
 
@@ -47,11 +57,13 @@ def list_databases() -> List[Dict]:
         if not entry.is_dir():
             continue
         speakers = list_speakers(entry.name)
-        result.append({
-            "name": entry.name,
-            "speaker_count": len(speakers),
-            "path": str(entry),
-        })
+        result.append(
+            {
+                "name": entry.name,
+                "speaker_count": len(speakers),
+                "path": str(entry),
+            }
+        )
     return result
 
 
@@ -94,12 +106,14 @@ def list_speakers(db_name: str) -> List[Dict]:
         if f.suffix.lower() not in SUPPORTED_AUDIO_EXTENSIONS:
             continue
         st = f.stat()
-        speakers.append({
-            "filename": f.name,
-            "speaker_name": f.stem,
-            "size_bytes": st.st_size,
-            "mtime": int(st.st_mtime),
-        })
+        speakers.append(
+            {
+                "filename": f.name,
+                "speaker_name": f.stem,
+                "size_bytes": st.st_size,
+                "mtime": int(st.st_mtime),
+            }
+        )
     return speakers
 
 
@@ -138,7 +152,9 @@ def rename_speaker(db_name: str, filename: str, new_speaker_name: str) -> Path:
     return dst
 
 
-def add_speaker_file(db_name: str, src_path: Path, dest_filename: Optional[str] = None) -> Path:
+def add_speaker_file(
+    db_name: str, src_path: Path, dest_filename: Optional[str] = None
+) -> Path:
     """src_path を DB にコピーして登録する。
 
     dest_filename を省略すると src_path.name を使用。

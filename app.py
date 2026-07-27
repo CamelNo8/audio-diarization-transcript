@@ -26,8 +26,8 @@ except ImportError:
 
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 
-from audio_processor import AudioProcessor
-from main import (
+from src.diarization.processor import AudioProcessor
+from src.diarization.registry import (
     get_cached_speaker_identifier,
     collect_registry_files,
     SUPPORTED_REGISTRY_EXTENSIONS,
@@ -37,7 +37,7 @@ from src.subtitle.exporter import (
     generate_srt_content,
     write_srt_file,
 )
-import voice_database as vdb
+import src.voice_db.registry as vdb
 from src.common.audio import extract_audio
 from src.common.csv_io import read_dict_rows, read_rows, write_rows
 from src.common.timecode import colon_ms_to_comma_ms

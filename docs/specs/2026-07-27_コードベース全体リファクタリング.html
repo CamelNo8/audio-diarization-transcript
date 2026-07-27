@@ -27,7 +27,7 @@
 <h1>コードベース全体リファクタリング 仕様書</h1>
 
 <div class="meta">
-  <strong>ステータス:</strong> <span class="status s-doing">進行中</span>（Phase 0・1・2 の実装完了 / <strong>次は Phase 3</strong>）<br>
+  <strong>ステータス:</strong> <span class="status s-doing">進行中</span>（Phase 0〜3 の実装完了 / <strong>次は Phase 4</strong>）<br>
   <strong>最終更新日:</strong> 2026-07-27<br>
   <strong>対象リポジトリ:</strong> <code>audio-diarization-transcript</code>（ブランチ <code>main</code>）
 </div>
@@ -403,15 +403,59 @@ import とインターフェースの整合までしか保証されない。実�
 </div>
 
 <div class="phase">
-<h3>Phase 3 — 音声処理コアの分割 <span class="status s-todo">未着手</span></h3>
+<h3>Phase 3 — 音声処理コアの分割 <span class="status s-doing">進行中</span></h3>
 <ul class="todo">
-  <li>☐ <span class="status s-todo">未着手</span> 特性テスト #9〜#11 を作成し、現行コードで緑を確認</li>
-  <li>☐ <span class="status s-todo">未着手</span> <code>transcription_backend.py</code> を <code>src/transcription/</code> へ分割（モデルID変換・各バックエンド）</li>
-  <li>☐ <span class="status s-todo">未着手</span> <code>audio_processor.py</code> を <code>src/diarization/</code> の5モジュールへ分割</li>
-  <li>☐ <span class="status s-todo">未着手</span> <code>process_and_save_to_csv</code>（約208行）・<code>process_for_api</code>（約92行）・<code>_extract_vocals_inplace</code>（約88行）を50行以下に分解</li>
-  <li>☐ <span class="status s-todo">未着手</span> <code>speaker_identification.py</code> / <code>embedding_cache.py</code> / <code>voice_database.py</code> を移設</li>
-  <li>☐ <span class="status s-todo">未着手</span> CLI（<code>main.py</code>）を <code>src/cli/runner.py</code> へ移し、ルートに薄いエントリポイントを残す</li>
-  <li>☐ <span class="status s-todo">未着手</span> テスト全緑 + <code>python main.py --help</code> を確認・フェーズ報告・承認</li>
+  <li>☑ <span class="status s-done">完了</span> 特性テスト #9〜#11 を作成し、現行コードで緑を確認（197件 → <strong>285件 passed</strong>）</li>
+  <li>☑ <span class="status s-done">完了</span> <code>transcription_backend.py</code>（317行）を <code>src/transcription/</code> の5モジュールへ分割
+      （<code>model_ids</code> / <code>mlx</code> / <code>faster_whisper</code> / <code>transformers_backend</code> / <code>backend</code>）</li>
+  <li>☑ <span class="status s-done">完了</span> <code>audio_processor.py</code>（875行）を <code>src/diarization/</code> へ分割
+      （<code>processor</code> 372 / <code>clusters</code> 305 / <code>interactive</code> 300 / <code>vocals</code> 116 /
+      <code>pipeline</code> 103 / <code>transcript</code> 106 / <code>torch_compat</code> 36 行）</li>
+  <li>☑ <span class="status s-done">完了</span> <code>process_and_save_to_csv</code>（約208行）・<code>process_for_api</code>（約92行）・
+      <code>_extract_vocals_inplace</code>（約88行）を50行以下に分解
+      （<strong><code>src/</code> 全体で50行超の関数・400行超のファイルはゼロ</strong>）</li>
+  <li>☑ <span class="status s-done">完了</span> <code>speaker_identification.py</code> → <code>src/diarization/speaker_identifier.py</code>、
+      <code>embedding_cache.py</code> → <code>src/diarization/embedding_cache.py</code>、
+      <code>voice_database.py</code> → <code>src/voice_db/registry.py</code>（いずれも <code>git mv</code>）</li>
+  <li>☑ <span class="status s-done">完了</span> CLI を <code>src/cli/runner.py</code> へ移し、ルート <code>main.py</code> は
+      36行の薄いエントリポイント（ロギング・<code>.env</code>・<code>HF_HUB_OFFLINE</code> の設定のみ）に</li>
+  <li>☑ <span class="status s-done">完了</span> テスト全緑 + <code>python main.py --help</code> を確認（下記）</li>
+  <li>☐ <span class="status s-todo">未着手</span> フェーズ報告・承認</li>
+</ul>
+
+<p><strong>Phase 3 の検証（実行結果）:</strong></p>
+<ul>
+  <li><code>.venv/bin/python -m pytest -q</code> → <strong>285 passed</strong></li>
+  <li><code>.venv/bin/ruff check src/ tests/</code> → All checks passed / <code>ruff format</code> 適用済み</li>
+  <li><code>python main.py --help</code> → 終了コード 0、オプション一覧が従来どおり表示される</li>
+  <li><code>import app</code> / <code>import spark_server</code> がいずれも成功</li>
+</ul>
+
+<p><strong>Phase 3 の判断・自己申告:</strong></p>
+<ul>
+  <li><strong>計画の「5モジュール」から2つ増やした。</strong>
+      <code>torch_compat.py</code>（<code>torch.load</code> の pyannote 互換パッチ。旧 <code>audio_processor.py</code> と
+      <code>speaker_identification.py</code> に同じコードが重複していたため共有モジュールへ）と、
+      <code>transcript.py</code>（Whisper セグメントへの話者割り当てと CSV 行の組み立て。
+      <code>processor.py</code> が400行を超えたため分離）。</li>
+  <li><strong>クラスタの状態を <code>ClusterAssignments</code>（dataclass）にまとめた。</strong>
+      旧実装は <code>AudioProcessor</code> の5つの辞書（<code>speaker_mapping</code> ほか）に分散しており、
+      モジュールをまたいで渡せなかったため。外部（<code>app.py</code> / <code>spark_server.py</code>）は
+      公開メソッドしか使っていないことを確認済み。</li>
+  <li><strong>ログ出力の統一:</strong> <code>transcription_backend.py</code> / <code>embedding_cache.py</code> は
+      Phase 1 の置換対象から漏れて <code>logging</code> モジュールを直接使っていたため、
+      分割にあわせて <code>src/common/logging.get_logger</code> へ揃えた（文言は不変）。</li>
+  <li><strong>CSV 出力の書き方を変更（振る舞いの差分あり）:</strong> 旧実装は1行ずつ書きながらログを出していたが、
+      全行を組み立ててから <code>src/common/csv_io.write_rows</code> で一括出力するようにした。
+      出力内容（列・引用符・BOM 付き UTF-8）は同一。書き込み失敗時に部分的な CSV が残らなくなる。</li>
+  <li><strong>既存バグの報告（本作業では直さない）:</strong>
+      <code>_FW_SIZES</code>（現 <code>FASTER_WHISPER_SIZES</code>）は <code>"large-v3"</code> が
+      <code>"distil-large-v3"</code> より前にあるため、モデル指定 <code>distil-large-v3</code> は
+      <code>large-v3</code> と解決される。結果として <code>to_hf_whisper_repo("distil-large-v3")</code> は
+      <code>distil-whisper/distil-large-v3</code> ではなく <code>openai/whisper-large-v3</code> を返す。
+      <code>distil-whisper/</code> で始まるフルリポジトリ指定なら素通しされるため実害は限定的。
+      現在の挙動を特性テストに固定した。</li>
+  <li><code>pyproject.toml</code> の <code>only-include</code> と README のバックエンド記述を移動先に追随させた。</li>
 </ul>
 </div>
 

@@ -1,4 +1,4 @@
-"""声紋データベース操作の特性テスト（現 voice_database.py）。
+"""声紋データベース操作の特性テスト（現 src/voice_db/registry.py）。
 
 Phase 3 で src/voice_db/registry.py へ移設する。
 DB名・ファイル名の検証（規約7.1）を含めてここで固定する。
@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-import voice_database as vdb
+import src.voice_db.registry as vdb
 
 
 @pytest.fixture(autouse=True)
