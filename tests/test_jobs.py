@@ -17,10 +17,8 @@ import app
 
 
 @pytest.fixture(autouse=True)
-def ジョブ保存先を一時ディレクトリにする(tmp_path, monkeypatch):
-    """実リポジトリの temp/clusters を汚さないよう保存先とキャッシュを差し替える。"""
-    monkeypatch.setattr(app, "CLUSTERS_ROOT", tmp_path / "clusters")
-    monkeypatch.setattr(app, "_JOBS", {})
+def _保存先を差し替える(ジョブ保存先):
+    """全テストで保存先とメモリキャッシュを tmp_path 配下に固定する（conftest）。"""
 
 
 def _write_csv(path, rows: list[list[str]]) -> None:
