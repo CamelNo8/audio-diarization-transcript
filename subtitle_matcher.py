@@ -16,6 +16,7 @@ from typing import List, Dict, Any, Tuple, Set
 import sys  # コマンドライン引数のために追加
 
 from src.common.csv_io import read_dict_rows
+from src.common.logging import configure_logging, get_logger
 from src.common.timecode import seconds_to_time_str, time_str_to_seconds
 from src.config import NGRAM_MAX_N, SENTENCE_EMBEDDING_MODEL, SIMILAR_VECTOR_TOP_K
 
@@ -24,13 +25,7 @@ try:
 except Exception:
     pass
 
-logger = logging.getLogger(__name__)
-
-
-def _log(msg: str) -> None:
-    """uvicorn ログにも CLI にも出るように logging + print(flush) を併用。"""
-    logger.info(msg)
-    print(msg, flush=True)
+logger = get_logger(__name__)
 
 # ==============================================================================
 # 1. データ読み込みヘルパー
@@ -52,11 +47,11 @@ def load_scripts_from_csv(filename: str) -> List[Dict[str, Any]]:
                     "dialogue": dialogue_text
                 })
                 script_id += 1
-        print(f"'{filename}' から {len(scripts)} 件の台詞データを読み込みました。")
+        logger.info(f"'{filename}' から {len(scripts)} 件の台詞データを読み込みました。")
     except FileNotFoundError:
-        print(f"エラー: ファイル '{filename}' が見つかりません。")
+        logger.error(f"エラー: ファイル '{filename}' が見つかりません。")
     except Exception as e:
-        print(f"エラー: {filename} の読み込み中にエラーが発生しました: {e}")
+        logger.error(f"エラー: {filename} の読み込み中にエラーが発生しました: {e}")
     return scripts
 
 _MEANINGFUL_CHAR_RE = re.compile(r"[぀-ヿ一-鿿a-zA-Z0-9]")
@@ -127,14 +122,14 @@ def load_stt_from_srt(filename: str) -> List[Dict[str, Any]]:
                         "stt_speaker": speaker
                     })
                     stt_id += 1
-        print(
+        logger.info(
             f"'{filename}' から {len(stt)} 件の字幕データを読み込みました。"
             f"（時刻不正で除外: {skipped_time}, 幻覚テキストで除外: {skipped_noise}）"
         )
     except FileNotFoundError:
-        print(f"エラー: ファイル '{filename}' が見つかりません。")
+        logger.error(f"エラー: ファイル '{filename}' が見つかりません。")
     except Exception as e:
-        print(f"エラー: {filename} の読み込み中にエラーが発生しました: {e}")
+        logger.error(f"エラー: {filename} の読み込み中にエラーが発生しました: {e}")
     return stt
 
 # ==============================================================================
@@ -189,21 +184,21 @@ def encode_texts(texts: List[str], model_name: str = SENTENCE_EMBEDDING_MODEL) -
     """
     SentenceTransformerモデルを読み込み、テキストリストをベクトルに変換する。
     """
-    _log(f"\nモデル '{model_name}' を読み込んでいます... ({len(texts)} texts)")
+    logger.info(f"\nモデル '{model_name}' を読み込んでいます... ({len(texts)} texts)")
     model = SentenceTransformer(model_name)
-    _log("モデルの読み込み完了。文章をベクトルに変換しています...")
+    logger.info("モデルの読み込み完了。文章をベクトルに変換しています...")
     t0 = time.time()
     embeddings = model.encode(texts, convert_to_tensor=True).cpu().numpy()
-    _log(f"[encode_texts] model.encode done in {time.time()-t0:.2f}s, normalizing...")
+    logger.info(f"[encode_texts] model.encode done in {time.time()-t0:.2f}s, normalizing...")
     faiss.normalize_L2(embeddings)
-    _log(f"ベクトル変換が完了しました。 ({embeddings.shape})")
+    logger.info(f"ベクトル変換が完了しました。 ({embeddings.shape})")
     return model, embeddings
 
 def find_similar_vectors(query_embeddings: np.ndarray, index_embeddings: np.ndarray, k: int) -> Tuple[np.ndarray, np.ndarray]:
     """
     Faissインデックスを構築し、類似ベクトルを検索する。
     """
-    _log(
+    logger.info(
         f"[find_similar_vectors] start: query={query_embeddings.shape}, "
         f"index={index_embeddings.shape}, k={k}"
     )
@@ -211,11 +206,11 @@ def find_similar_vectors(query_embeddings: np.ndarray, index_embeddings: np.ndar
     dimension = index_embeddings.shape[1]
     index = faiss.IndexFlatIP(dimension)
     index.add(index_embeddings)
-    _log(f"[find_similar_vectors] index built in {time.time()-t0:.2f}s; searching...")
+    logger.info(f"[find_similar_vectors] index built in {time.time()-t0:.2f}s; searching...")
     t1 = time.time()
     k_eff = min(k, index_embeddings.shape[0])
     distances, indices = index.search(query_embeddings, k_eff)
-    _log(f"[find_similar_vectors] search done in {time.time()-t1:.2f}s")
+    logger.info(f"[find_similar_vectors] search done in {time.time()-t1:.2f}s")
     return distances, indices
 
 # ==============================================================================
@@ -226,7 +221,7 @@ def create_candidate_pairs(script_ngrams: List[Dict], stt_ngrams: List[Dict], di
     """
     検索結果から、重み付けされた類似度を持つ候補ペアのDataFrameを作成する。
     """
-    _log("\nWLISアルゴリズムのためのデータ準備中...")
+    logger.info("\nWLISアルゴリズムのためのデータ準備中...")
     all_pairs = []
     for i in range(len(script_ngrams)):
         for j in range(distances.shape[1]):
@@ -254,17 +249,17 @@ def create_candidate_pairs(script_ngrams: List[Dict], stt_ngrams: List[Dict], di
         ["script_start_index", "stt_start_time", "similarity"],
         ascending=[True, True, False]
     ).reset_index(drop=True)
-    _log(f"{len(sim_df)}個の候補ペアを作成し、ソートしました。")
+    logger.info(f"{len(sim_df)}個の候補ペアを作成し、ソートしました。")
     return sim_df
 
 def apply_wlis(sim_df: pd.DataFrame) -> List[int]:
     """
     重み付き最長増加部分シーケンス（WLIS）アルゴリズムを適用して、最適なペアのシーケンスを見つける。
     """
-    _log("\n最適なマッチングを探索中...")
+    logger.info("\n最適なマッチングを探索中...")
     n = len(sim_df)
     if n == 0:
-        _log("有効な候補ペアが見つかりませんでした。")
+        logger.info("有効な候補ペアが見つかりませんでした。")
         return []
 
     # 列をNumPy配列に取り出して .loc[] の遅さを避ける (n^2 のループ向け)
@@ -294,8 +289,8 @@ def apply_wlis(sim_df: pd.DataFrame) -> List[int]:
                 dp[i] = candidate_scores[j_best]
                 prev[i] = j_best
         if i % 500 == 0 and i > 0:
-            _log(f"  apply_wlis: {i}/{n} ({time.time()-t0:.1f}s)")
-    _log(f"  apply_wlis: loop done in {time.time()-t0:.2f}s")
+            logger.info(f"  apply_wlis: {i}/{n} ({time.time()-t0:.1f}s)")
+    logger.info(f"  apply_wlis: loop done in {time.time()-t0:.2f}s")
 
     max_score_index = int(np.argmax(dp))
     best_path_indices = []
@@ -334,7 +329,7 @@ def export_results_to_csv(scripts: List, stt: List, matched_pairs: List, matched
     """
     マッチング結果を時系列でソートし、未使用データと共にCSVに出力する。
     """
-    print(f"\n最終結果をCSVファイル '{filename}' に生成しています...")
+    logger.info(f"最終結果をCSVファイル '{filename}' に生成しています...")
     timed_data = []
 
     # Matchedデータを作成
@@ -445,7 +440,7 @@ def export_results_to_csv(scripts: List, stt: List, matched_pairs: List, matched
         unmatched_idx += 1
 
     # --- (新設) Unmatched_Script の時間補完処理 ---
-    print("Unmatched_Script の時系列を補完しています...")
+    logger.info("Unmatched_Script の時系列を補完しています...")
     i = 0
     while i < len(merged_data):
         row = merged_data[i]
@@ -536,15 +531,15 @@ def export_results_to_csv(scripts: List, stt: List, matched_pairs: List, matched
                     del row['sort_key']
                 writer.writerow(row)
 
-        print(f"CSVファイル '{filename}' の生成が完了しました。")
+        logger.info(f"CSVファイル '{filename}' の生成が完了しました。")
     except IOError as e:
-        print(f"エラー: CSVファイルの書き込みに失敗しました: {e}")
+        logger.error(f"エラー: CSVファイルの書き込みに失敗しました: {e}")
 
 def display_summary(scripts: List, stt: List, matched_pairs: List, matched_script_indices: Set, matched_stt_indices: Set):
     """
     コンソールにマッチングの詳細と統計情報を表示する。
     """
-    print("\n--- マッチング詳細 ---")
+    logger.info("--- マッチング詳細 ---")
     for i, match in enumerate(matched_pairs, 1):
         script_ng, stt_ng = match["script_ng"], match["stt_ng"]
 
@@ -556,26 +551,42 @@ def display_summary(scripts: List, stt: List, matched_pairs: List, matched_scrip
         stt_ids = stt_ng['original_ids']
         stt_range = f"No.{stt_ids[0]}" if len(stt_ids) == 1 else f"No.{stt_ids[0]}-{stt_ids[-1]}"
 
-        print(f"◆ マッチ {i}: 台本 {script_range} ({script_ng['n']}-gram) ⇔ 音声認識 {stt_range} ({stt_ng['n']}-gram)")
-        print(f"  [時刻]     : {stt[stt_ng['original_ids'][0]]['start']} --> {stt[stt_ng['original_ids'][-1]]['end']}")
-        print(f"  [台本]     : {script_ng['text']}")
-        print(f"  [音声認識] : {stt_ng['text']}")
-        print(f"  [類似度]   : {match['similarity']:.4f}\n" + "-" * 80)
+        logger.info(
+            f"◆ マッチ {i}: 台本 {script_range} ({script_ng['n']}-gram) "
+            f"⇔ 音声認識 {stt_range} ({stt_ng['n']}-gram)"
+        )
+        logger.info(
+            f"  [時刻]     : {stt[stt_ng['original_ids'][0]]['start']} "
+            f"--> {stt[stt_ng['original_ids'][-1]]['end']}"
+        )
+        logger.info(f"  [台本]     : {script_ng['text']}")
+        logger.info(f"  [音声認識] : {stt_ng['text']}")
+        logger.info(f"  [類似度]   : {match['similarity']:.4f}\n" + "-" * 80)
 
-    print("\n--- 未使用の台本 ---")
+    logger.info("--- 未使用の台本 ---")
     unmatched_scripts = [s for s in scripts if s["id"] not in matched_script_indices]
-    for s in unmatched_scripts: print(f"◆ 台本 No.{s['id']}: {s['speaker']}「{s['dialogue']}」")
-    if not unmatched_scripts: print("全ての台本要素が使用されました。")
+    for s in unmatched_scripts:
+        logger.info(f"◆ 台本 No.{s['id']}: {s['speaker']}「{s['dialogue']}」")
+    if not unmatched_scripts:
+        logger.info("全ての台本要素が使用されました。")
 
-    print("\n--- 未使用の音声認識 ---")
+    logger.info("--- 未使用の音声認識 ---")
     unmatched_stt = [s for s in stt if s["id"] not in matched_stt_indices]
-    for s in unmatched_stt: print(f"◆ 音声認識 No.{s['id']} ({s['start']}): {s['text']}")
-    if not unmatched_stt: print("全ての音声認識要素が使用されました。")
+    for s in unmatched_stt:
+        logger.info(f"◆ 音声認識 No.{s['id']} ({s['start']}): {s['text']}")
+    if not unmatched_stt:
+        logger.info("全ての音声認識要素が使用されました。")
 
-    print("\n--- 統計情報 ---")
-    print(f"マッチング数: {len(matched_pairs)}組")
-    print(f"使用された台本要素: {len(matched_script_indices)}/{len(scripts)} ({len(matched_script_indices)/len(scripts)*100:.1f}%)")
-    print(f"使用された音声認識要素: {len(matched_stt_indices)}/{len(stt)} ({len(matched_stt_indices)/len(stt)*100:.1f}%)")
+    logger.info("--- 統計情報 ---")
+    logger.info(f"マッチング数: {len(matched_pairs)}組")
+    logger.info(
+        f"使用された台本要素: {len(matched_script_indices)}/{len(scripts)} "
+        f"({len(matched_script_indices) / len(scripts) * 100:.1f}%)"
+    )
+    logger.info(
+        f"使用された音声認識要素: {len(matched_stt_indices)}/{len(stt)} "
+        f"({len(matched_stt_indices) / len(stt) * 100:.1f}%)"
+    )
 
 # ==============================================================================
 # 6. メイン処理
@@ -586,20 +597,20 @@ def run_matching_process(script_file: str, stt_file: str, output_filename: str):
     台本と音声認識のマッチング処理全体を統括する。
     """
     t_start = time.time()
-    _log(f"[run_matching_process] start: script={script_file}, stt={stt_file}, out={output_filename}")
+    logger.info(f"[run_matching_process] start: script={script_file}, stt={stt_file}, out={output_filename}")
 
     # 1. データ読み込み
     scripts = load_scripts_from_csv(script_file)
     stt = load_stt_from_srt(stt_file)
     if not scripts or not stt:
-        _log("データ読み込みに失敗したため、処理を中断します。")
+        logger.info("データ読み込みに失敗したため、処理を中断します。")
         return
 
     # 2. n-gram生成
-    _log("\nn-gramチャンクを生成しています...")
+    logger.info("\nn-gramチャンクを生成しています...")
     script_ngrams = create_ngrams(scripts, text_key="dialogue", max_n=NGRAM_MAX_N)
     stt_ngrams = create_ngrams(stt, text_key="text", max_n=NGRAM_MAX_N, has_time=True)
-    _log(f"台本n-gram: {len(script_ngrams)}個、音声認識n-gram: {len(stt_ngrams)}個を生成しました。")
+    logger.info(f"台本n-gram: {len(script_ngrams)}個、音声認識n-gram: {len(stt_ngrams)}個を生成しました。")
 
     # 3. テキストのベクトル化（モデル参照を残さず MPS リソースを早めに解放）
     script_texts = [ng["normalized_text"] for ng in script_ngrams]
@@ -614,18 +625,18 @@ def run_matching_process(script_file: str, stt_file: str, output_filename: str):
             torch.mps.empty_cache()
     except Exception:
         pass
-    _log("[run_matching_process] embedding cleanup done")
+    logger.info("[run_matching_process] embedding cleanup done")
 
     # 4. 類似度検索
-    _log("[run_matching_process] calling find_similar_vectors...")
+    logger.info("[run_matching_process] calling find_similar_vectors...")
     distances, indices = find_similar_vectors(script_embeddings, stt_embeddings, k=SIMILAR_VECTOR_TOP_K)
-    _log(f"[run_matching_process] find_similar_vectors returned: distances={distances.shape}, indices={indices.shape}")
+    logger.info(f"[run_matching_process] find_similar_vectors returned: distances={distances.shape}, indices={indices.shape}")
 
     # 5. 候補ペア生成と最適化
     candidate_pairs_df = create_candidate_pairs(script_ngrams, stt_ngrams, distances, indices)
-    _log(f"[run_matching_process] candidate_pairs_df: {len(candidate_pairs_df)} rows")
+    logger.info(f"[run_matching_process] candidate_pairs_df: {len(candidate_pairs_df)} rows")
     best_path_indices = apply_wlis(candidate_pairs_df)
-    _log(f"[run_matching_process] apply_wlis returned {len(best_path_indices)} paths")
+    logger.info(f"[run_matching_process] apply_wlis returned {len(best_path_indices)} paths")
 
     # 6. 結果の集計と出力
     matched_pairs, matched_script_indices, matched_stt_indices = process_final_results(
@@ -634,36 +645,46 @@ def run_matching_process(script_file: str, stt_file: str, output_filename: str):
     # 引数で受け取った出力ファイル名を渡す
     export_results_to_csv(scripts, stt, matched_pairs, matched_script_indices, matched_stt_indices, filename=output_filename)
     display_summary(scripts, stt, matched_pairs, matched_script_indices, matched_stt_indices)
-    _log(f"[run_matching_process] DONE in {time.time()-t_start:.2f}s")
+    logger.info(f"[run_matching_process] DONE in {time.time()-t_start:.2f}s")
 
 
 if __name__ == '__main__':
+    # 本スクリプトは Web UI から別プロセスとして起動され、その標準出力が
+    # 画面に転載される。ログを標準出力へ出すためにここで設定する。
+    configure_logging()
+
     try:
         # 'faiss' が 'faiss-cpu' または 'faiss-gpu' のどちらかでインポートされることを期待
         import faiss
     except ImportError:
-        print("エラー: Faiss ライブラリが見つかりません。")
-        print("'pip install faiss-cpu' (CPU版) または 'pip install faiss-gpu' (GPU版) を実行してください。")
+        logger.error("エラー: Faiss ライブラリが見つかりません。")
+        logger.error(
+            "'pip install faiss-cpu' (CPU版) または "
+            "'pip install faiss-gpu' (GPU版) を実行してください。"
+        )
         exit()
 
     try:
         import sentence_transformers
     except ImportError:
-        print("エラー: sentence-transformers ライブラリが見つかりません。")
-        print("'pip install sentence-transformers' を実行してください。")
+        logger.error("エラー: sentence-transformers ライブラリが見つかりません。")
+        logger.error("'pip install sentence-transformers' を実行してください。")
         exit()
 
     try:
         import pandas
     except ImportError:
-        print("エラー: pandas ライブラリが見つかりません。")
-        print("'pip install pandas' を実行してください。")
+        logger.error("エラー: pandas ライブラリが見つかりません。")
+        logger.error("'pip install pandas' を実行してください。")
         exit()
 
     # --- コマンドライン引数の処理 ---
     if len(sys.argv) != 4:
-        print("エラー: 引数の数が正しくありません。")
-        print("使い方: python subtitle_matcher.py 台本CSVファイルパス 音声認識SRTファイルパス 出力CSVファイル名（対応表）")
+        logger.error("エラー: 引数の数が正しくありません。")
+        logger.error(
+            "使い方: python subtitle_matcher.py 台本CSVファイルパス "
+            "音声認識SRTファイルパス 出力CSVファイル名（対応表）"
+        )
         exit()
 
     # --- 設定 ---

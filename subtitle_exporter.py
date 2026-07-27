@@ -2,6 +2,9 @@ import argparse
 from typing import List, Dict, Optional
 
 from src.common.csv_io import read_dict_rows
+from src.common.logging import configure_logging, get_logger
+
+logger = get_logger(__name__)
 
 def load_subtitle_data(input_csv_path: str) -> List[Dict[str, str]]:
     """
@@ -21,15 +24,20 @@ def load_subtitle_data(input_csv_path: str) -> List[Dict[str, str]]:
         for i, row in enumerate(read_dict_rows(input_csv_path)):
             # 必要な列が存在するかチェック
             if not all(col in row for col in required_columns):
-                print(f"警告: {i+1}行目に必要な列が不足しています。スキップします。")
+                logger.warning(f"警告: {i+1}行目に必要な列が不足しています。スキップします。")
                 continue
 
             # 必要な列のデータが空でないかチェック
             if not all(row[col] for col in required_columns):
-                print(f"警告: {i+1}行目に空のデータがあります。スキップします。 (speakerは空でも可)")
+                logger.warning(
+                    f"警告: {i+1}行目に空のデータがあります。スキップします。 (speakerは空でも可)"
+                )
                 # speaker は空欄を許可する場合（仕様には明記されていないが、空の場合もありうるため）
                 if not all(row[col] for col in ["start_time", "end_time", "subtitle_text"]):
-                     print(f"警告: {i+1}行目に必須データ（時間またはテキスト）がありません。スキップします。")
+                     logger.warning(
+                         f"警告: {i+1}行目に必須データ（時間またはテキスト）がありません。"
+                         "スキップします。"
+                     )
                      continue
 
             # 必要なデータのみを抽出してリストに追加
@@ -41,13 +49,13 @@ def load_subtitle_data(input_csv_path: str) -> List[Dict[str, str]]:
             })
 
     except FileNotFoundError:
-        print(f"エラー: 入力ファイル '{input_csv_path}' が見つかりません。")
+        logger.error(f"エラー: 入力ファイル '{input_csv_path}' が見つかりません。")
         return []
     except Exception as e:
-        print(f"エラー: CSVファイルの読み込み中にエラーが発生しました: {e}")
+        logger.error(f"エラー: CSVファイルの読み込み中にエラーが発生しました: {e}")
         return []
 
-    print(f"'{input_csv_path}' から {len(subtitle_data)} 件の字幕データを読み込みました。")
+    logger.info(f"'{input_csv_path}' から {len(subtitle_data)} 件の字幕データを読み込みました。")
     return subtitle_data
 
 def format_subtitle_text(current_speaker: str, subtitle_text: str, previous_speaker: Optional[str]) -> str:
@@ -124,11 +132,11 @@ def write_srt_file(output_srt_path: str, srt_content: str) -> None:
     try:
         with open(output_srt_path, mode='w', encoding='utf-8') as f:
             f.write(srt_content)
-        print(f"SRTファイルを '{output_srt_path}' に正常に書き込みました。")
+        logger.info(f"SRTファイルを '{output_srt_path}' に正常に書き込みました。")
     except IOError as e:
-        print(f"エラー: ファイルの書き込み中にエラーが発生しました: {e}")
+        logger.error(f"エラー: ファイルの書き込み中にエラーが発生しました: {e}")
     except Exception as e:
-        print(f"エラー: 予期せぬエラーが発生しました: {e}")
+        logger.error(f"エラー: 予期せぬエラーが発生しました: {e}")
 
 def main():
     """
@@ -147,12 +155,13 @@ def main():
         help="出力するSRTファイルのパス (例: subtitles_exported.srt)"
     )
 
+    configure_logging()
     args = parser.parse_args()
     # 1. CSVデータの読み込み
     subtitle_data = load_subtitle_data(args.input_csv)
 
     if not subtitle_data:
-        print("データが読み込めなかったため、処理を終了します。")
+        logger.error("データが読み込めなかったため、処理を終了します。")
         return
     # 2. SRTコンテンツの生成
     srt_content = generate_srt_content(subtitle_data)

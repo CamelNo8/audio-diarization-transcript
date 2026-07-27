@@ -7,13 +7,22 @@ import shutil
 import logging
 from pathlib import Path
 
+from src.common.logging import configure_logging, get_logger
+
+# .env 読み込み時の警告も拾えるよう、最初にロギングを設定する
+configure_logging()
+logger = get_logger(__name__)
+
 # python-dotenv を使って環境変数 (.env) をロード
 try:
     from dotenv import load_dotenv
     load_dotenv()
 except ImportError:
-    print("Warning: python-dotenv is not installed. Environment variables from .env will not be loaded automatically.")
-    print("To install: uv pip install python-dotenv")
+    logger.warning(
+        "python-dotenv is not installed. "
+        "Environment variables from .env will not be loaded automatically."
+    )
+    logger.warning("To install: uv pip install python-dotenv")
 
 os.environ["HF_HUB_OFFLINE"] = "1"  # [OPTIMIZED]
 
@@ -24,13 +33,6 @@ from src.config import (
     DEFAULT_EMBEDDING_MODEL,
     DEFAULT_SPEAKER_THRESHOLD,
     DEFAULT_WHISPER_MODEL,
-)
-
-# ロギング設定
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    stream=sys.stdout,
 )
 
 _SPEAKER_IDENTIFIER_CACHE: dict[str, SpeakerIdentifier] = {}

@@ -454,7 +454,7 @@ class AudioProcessor:
                     else:
                         candidates_str = "N/A"
 
-                    print(
+                    logging.info(
                         f"  [{start_str} - {end_str}] cluster={best_cluster} "
                         f"speaker={best_speaker} candidates: {candidates_str}"
                     )
@@ -618,6 +618,10 @@ class AudioProcessor:
 
     # ------------------------------------------------------------------
     # Unknown 話者の対話的登録
+    #
+    # 以下のブロックでは print / input による端末との対話を行う。ここでの
+    # print はログではなく操作画面そのもの（入力プロンプト）なので、
+    # ロガーには置き換えない。
     # ------------------------------------------------------------------
 
     def _resolve_unknown_speakers_interactively(self) -> None:
