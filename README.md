@@ -206,18 +206,60 @@ UI は横並び 3 カード構成：
 - **Step 3: 字幕生成** — 編集済み対応表 CSV から字幕 SRT を生成（`src/subtitle/exporter.py`）。
 
 Step 1 → Step 2 はジョブ ID で連携し、生成物は `temp/` 配下に保存されます（再起動しても残ります）。
-文字起こしは同期処理のため、長尺で uvicorn のタイムアウトに当たる場合は `--timeout-keep-alive` 等を調整してください。
+
+#### Step 1 は非同期ジョブ
+
+文字起こしはアップロード完了時点で受け付けだけ返し、処理は裏で走ります。画面は 2 秒ごとに
+進捗を取りに行き、処理ログをその場に流しながら、完了すると結果パネルへ切り替わります。
+
+- **長尺でも接続が切れません。** 処理中も他の画面（声紋DB管理など）は通常どおり開けます。
+- ジョブの状態は `temp/clusters/<job_id>/job.json` に持ちます。**メモリには載せていない**ので、
+  ページを再読み込みしても進捗を追えます。
+- **ページを閉じても処理は続きます**が、結果パネルはその画面にしか出ません。
+  生成物は `temp/` に残るので、閉じてしまった場合は `/download/<ファイル名>` から取得できます。
+- サーバーを止めると処理も止まります。状態が `running` のまま残ったジョブは、
+  実行し直してください（途中から再開する仕組みはありません）。
+
+> **uvicorn は 1 ワーカーで起動してください。** ジョブの状態はファイルで共有しているので
+> 複数ワーカーでも壊れませんが、重いモデルがワーカーの数だけメモリに載ります。
 
 ### 声紋データベース（`voice_databases/`）
 
 Web UI では声紋 DB を `voice_databases/<DB名>/<話者名>.wav` の構造で管理し、GUI から作成・話者追加・リネーム・トリミング・削除ができます（[`/databases`](http://127.0.0.1:8000/databases) ページ）。
 
 - このディレクトリは **`.gitignore` 済み**（音声を Git/GitHub に上げないため）。`git clone` には含まれません。
-- 中身はサーバーのディスクに永続します（`git pull`・再起動では消えません）。GUI の削除は即時・不可逆です。
+- 中身はサーバーのディスクに永続します（`git pull`・再起動では消えません）。
 - **別サーバーへ移植**したいときは、Git ではなく `scp` で直接コピーします（SSH 暗号化・外部を経由しない）:
 
   ```bash
   scp -r voice_databases user@new-server:~/path/to/audio-diarization-transcript/
+  ```
+
+#### 削除とゴミ箱（`voice_databases/.trash/`）
+
+GUI からの削除は**その場では消さず**、`voice_databases/.trash/` へ退避します。
+確認ダイアログを押し間違えても戻せるようにするためです。
+
+```
+voice_databases/
+├── 会議A/                              # 通常のDB
+└── .trash/
+    ├── 20260728-143000_会議B/          # DB ごと削除したもの
+    └── 20260728-143512_会議A_太郎.wav  # 話者1件を削除したもの
+```
+
+- **戻すとき**は、`.trash/` の中身を元の名前に直して `voice_databases/` 直下へ移すだけです。
+
+  ```bash
+  mv voice_databases/.trash/20260728-143000_会議B voice_databases/会議B
+  ```
+
+- `.trash/` は DB 一覧には出ません。DB 名としても指定できません。
+- **自動削除はしません。** 削除してもディスク使用量は減らないので、
+  溜まってきたら手で空にしてください。
+
+  ```bash
+  rm -rf voice_databases/.trash/*
   ```
 
 ### 背景音除去（denoise）
@@ -266,6 +308,8 @@ audio-diarization-transcript/
 │   ├── common/                 # 複数機能から使う共通処理
 │   │   ├── audio.py            #   ffmpeg 呼び出し（切り出し・16kHz mono 変換）
 │   │   ├── csv_io.py           #   BOM 付き UTF-8 CSV の読み書き
+│   │   ├── json_io.py          #   JSON のアトミックな読み書き（ジョブ状態用）
+│   │   ├── files.py            #   一時ファイルの後始末
 │   │   ├── filenames.py        #   出力ファイル名の検証（パストラバーサル対策）
 │   │   ├── logging.py          #   ロギング設定と get_logger
 │   │   └── timecode.py         #   時刻文字列 ⇔ 秒の相互変換
@@ -298,10 +342,10 @@ audio-diarization-transcript/
 │   │   ├── application.py      #   ルータ登録（create_app）
 │   │   ├── templating.py       #   Jinja2 環境とエラー表示
 │   │   ├── storage.py          #   temp/ への保存とパス解決
-│   │   ├── jobs.py             #   ラベル付けジョブの発行・永続化・CSV再ラベル
+│   │   ├── jobs.py             #   ジョブの発行・永続化・進捗・CSV再ラベル
 │   │   ├── converters.py       #   文字起こしCSV→SRT、テキスト→台本CSV
 │   │   ├── identification.py   #   HFトークン解決・照合器の生成
-│   │   ├── log_capture.py      #   処理ログの捕捉（画面表示用）
+│   │   ├── log_capture.py      #   処理ログの捕捉（進捗表示用）
 │   │   ├── forms.py / errors.py
 │   │   └── routes/             #   pages / transcription / matching /
 │   │                           #   generation / databases / unknowns
@@ -312,7 +356,7 @@ audio-diarization-transcript/
 ├── tests/                      # pytest（重いモデルはモック）
 ├── tools/                      # 調査用の使い捨てスクリプト
 ├── temp/                       # 作業ディレクトリ（.gitignore 済み）
-└── voice_databases/            # 声紋DB（.gitignore 済み）
+└── voice_databases/            # 声紋DB（.gitignore 済み。.trash/ が削除済みの退避先）
 ```
 
 ---

@@ -28,7 +28,7 @@
 <h1>懸念事項の解消 仕様書</h1>
 
 <div class="meta">
-  <strong>ステータス:</strong> <span class="status s-doing">進行中</span>（2026-07-28 承認済み / Step A・B・C 完了）<br>
+  <strong>ステータス:</strong> <span class="status s-done">完了</span>（2026-07-28 / アーカイブ済み）<br>
   <strong>作成日:</strong> 2026-07-28<br>
   <strong>対象リポジトリ:</strong> <code>audio-diarization-transcript</code>（ブランチ <code>main</code>）<br>
   <strong>前提:</strong> <code>docs/specs/archive/2026-07-27_コードベース全体リファクタリング.html</code> の
@@ -276,18 +276,50 @@ README に「不要になったら <code>voice_databases/.trash/</code> を手�
 </div>
 
 <div class="phase">
-<h3>Step D — 仕上げ <span class="status s-todo">未着手</span></h3>
+<h3>Step D — 仕上げ <span class="status s-done">完了</span></h3>
 <ul class="todo">
-  <li>☐ <span class="status s-todo">未着手</span> README を更新（非同期化・ゴミ箱・単一ワーカーの注意）</li>
-  <li>☐ <span class="status s-todo">未着手</span> 全テスト緑・<code>ruff</code> 全体通過・起動確認・報告</li>
-  <li>☐ <span class="status s-todo">未着手</span> 全 ToDo 完了 → ステータスを「完了」に更新し <code>docs/specs/archive/</code> へ移動</li>
+  <li>☑ <span class="status s-done">完了</span> README を更新（非同期化・ゴミ箱・単一ワーカーの注意）</li>
+  <li>☑ <span class="status s-done">完了</span> 全テスト緑・<code>ruff</code> 全体通過・起動確認・報告</li>
+  <li>☑ <span class="status s-done">完了</span> 全 ToDo 完了 → ステータスを「完了」に更新し <code>docs/specs/archive/</code> へ移動</li>
 </ul>
 </div>
 
-<h2>8. 未確定事項・クライアント確認待ち</h2>
+<h2>8. 実装結果（2026-07-28）</h2>
+
+<table>
+  <tr><th>項目</th><th>結果</th></tr>
+  <tr><td>テスト</td><td>406 → <strong>458件 passed</strong>（+52件）</td></tr>
+  <tr><td>リンタ</td><td><code>ruff check .</code> / <code>ruff format --check .</code> ともにリポジトリ全体（88ファイル）で通過</td></tr>
+  <tr><td>起動</td><td><code>python app.py</code> / <code>uvicorn app:app</code> の両方で <code>/</code>・<code>/databases</code> が 200</td></tr>
+  <tr><td><strong>文字起こし中の応答性</strong></td>
+      <td><strong>確認済み。</strong> 8秒かかる偽プロセッサ＋本物の uvicorn で計測。
+          POST の応答 <strong>0.03秒</strong>、処理中の <code>GET /</code> は
+          <strong>0.03秒で 200</strong>、進捗ログがライブで流れ、完了でポーリングが停止した。</td></tr>
+</table>
+
+<h3>計画との差分</h3>
 <ul>
-  <li><strong>本仕様書の承認</strong>（承認後に実装へ入る）。</li>
-  <li>ポーリング間隔は 2 秒を既定とする。長尺で叩きすぎが気になる場合は調整する。</li>
-  <li>実装後、<strong>Spark で長尺の実音声を1本流して確認</strong>していただきたい
-      （非同期化の目的そのものはモックでは検証できないため）。</li>
+  <li><strong>進捗ログの定期書き出しを追加した（計画に無かった実装）。</strong>
+      ワーカーの最後にまとめてログを書くと、走っている間ずっと進捗パネルが空のままになる。
+      2秒ごとにジョブへ流し込む <code>_flush_log_periodically()</code> を足した。
+      <code>with</code> を抜けるときにスレッドを止めてから戻るので、最終結果の書き込みと入れ違いにならない。</li>
+  <li><strong>確認ダイアログの文言を更新した。</strong> 「全て削除されます」のままだと
+      実態（ゴミ箱へ退避・戻せる）と食い違うため。</li>
+  <li><strong><code>list_speakers</code> の呼び出しを増やさなかった。</strong>
+      計画では <code>sanitize_name()</code> の変更だけ書いていたが、<code>list_databases()</code> 側でも
+      ドット始まりを読み飛ばす必要があった（<code>.trash</code> が DB として画面に出てしまうため）。</li>
+</ul>
+
+<h2>9. 未確定事項・クライアント確認待ち</h2>
+<ul>
+  <li><strong>Spark で長尺の実音声を1本流して確認していただきたい。</strong>
+      重いモデルはすべてモックしているため、非同期化の目的（長尺で切れないこと）そのものは
+      実データでしか確認できない。上記の応答性確認は偽のプロセッサによるもの。</li>
+  <li>Spark 側で <code>git pull</code> したあとは
+      <code>./spark-down.sh --stop-server</code> → <code>./spark-up.sh</code> で
+      起動し直す必要がある（<code>app.py</code> 経由のコードが変わっているため）。</li>
+  <li>ポーリング間隔は 2 秒。長尺で叩きすぎが気になる場合は
+      <code>src/web/routes/transcription.py</code> の <code>POLL_INTERVAL</code> で調整できる。</li>
+  <li>残る懸念 <strong>#1（<code>src/spark/client.py</code> が未使用）・#6（422 の経路が二重）・
+      #7（到達しない 400 検査）</strong> は今回対象外。着手するかは未定。</li>
 </ul>
