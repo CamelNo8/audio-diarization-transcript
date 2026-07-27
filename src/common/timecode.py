@@ -45,6 +45,12 @@ def colon_ms_to_comma_ms(time_str: str) -> str:
 
     Returns:
         ``HH:MM:SS,mmm`` 形式の文字列。解釈できない書式は入力をそのまま返す。
+
+    Note:
+        **ミリ秒部は小数ではなく整数として解釈する。** 3桁未満の場合は
+        前ゼロ埋めになるため ``"00:00:01:5"`` は 500ms ではなく 005ms を指す。
+        :func:`format_time` が出力する CSV は常に3桁のため実害はない。
+        これは仕様であり、変更するとリファクタリング前の出力と食い違う。
     """
     if not time_str:
         return ""

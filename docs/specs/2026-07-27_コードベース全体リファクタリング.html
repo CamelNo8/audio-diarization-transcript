@@ -461,12 +461,12 @@ import とインターフェースの整合までしか保証されない。実�
 
 <div class="phase">
 <div class="warn">
-<strong>中断: 2026-07-27。次のセッションはここから再開する。</strong>
+<strong>中断: 2026-07-27。その後、既存バグの解消（別仕様書）を挟んだ。次はここから再開する。</strong>
 <ul>
   <li><strong>再開位置: Phase 4（Web アプリ層の分割）の最初のタスクから。</strong> Phase 0〜3 は完了済み・push 済み。</li>
   <li>Phase 4 の着手前に、クライアントへ着手可否を確認する（フェーズごとの承認が本作業の取り決め）。</li>
   <li>再開時の健全性確認コマンド:
-      <code>.venv/bin/python -m pytest -q</code>（<strong>285件 passed</strong> が現状）、
+      <code>.venv/bin/python -m pytest -q</code>（<strong>351件 passed</strong> が現状。バグ修正で +66件）、
       <code>.venv/bin/ruff check src/ tests/</code>、
       <code>.venv/bin/python -c "import app"</code>。</li>
   <li>Phase 4 の最初の作業は<strong>特性テスト #12（TestClient スモーク）の作成</strong>
@@ -480,8 +480,11 @@ import とインターフェースの整合までしか保証されない。実�
         <li><code>app.py</code> は <code>logging</code> モジュールを直接使っている箇所が残っている。
             Phase 1・3 と同様に <code>src/common/logging.get_logger</code> へ揃える。</li>
       </ul></li>
-  <li>Phase 3 で報告した既存バグ（<code>distil-large-v3</code> のモデルID解決）は<strong>未修正のまま</strong>。
-      修正するかはクライアントの判断待ち（本リファクタのスコープ外）。</li>
+  <li><strong>既存バグは Phase 4 着手前にすべて解消済み</strong>（2026-07-27）。
+      <code>docs/specs/archive/2026-07-27_既存バグの解消.html</code> を参照。
+      Phase 3 で報告した <code>distil-large-v3</code> のモデルID解決を含む7件を修正した。
+      これにより Phase 4 では「元からのバグ」と「分割で入れ込んだバグ」が混ざらない。
+      <strong>テストは 285 → 351件</strong>に増えているため、分割前の基準はこちらになる。</li>
 </ul>
 </div>
 

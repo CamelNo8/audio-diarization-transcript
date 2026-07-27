@@ -33,7 +33,7 @@
 <h1>既存バグの解消 仕様書</h1>
 
 <div class="meta">
-  <strong>ステータス:</strong> <span class="status s-doing">進行中</span>（承認済み / B-1〜B-7 完了 · 残りは仕上げ）<br>
+  <strong>ステータス:</strong> <span class="status s-done">完了</span>（2026-07-27 完了 / 全7件を修正 · 次は Phase 4）<br>
   <strong>最終更新日:</strong> 2026-07-27<br>
   <strong>対象リポジトリ:</strong> <code>audio-diarization-transcript</code>（ブランチ <code>main</code>）<br>
   <strong>関連仕様書:</strong> <code>docs/specs/2026-07-27_コードベース全体リファクタリング.html</code>（Phase 0〜3 完了・次は Phase 4）
@@ -635,18 +635,36 @@ B-2 の distil モデルについても、モデル ID の解決が正しくな�
 </div>
 
 <div class="phase">
-<h3>仕上げ <span class="status s-todo">未着手</span></h3>
+<h3>仕上げ <span class="status s-done">完了</span></h3>
 <ul class="todo">
-  <li>☐ <span class="status s-todo">未着手</span> <code>timecode.py</code> の docstring にミリ秒解釈の仕様を明記</li>
-  <li>☐ <span class="status s-todo">未着手</span> pytest 全緑 / ruff / <code>import app</code> / <code>main.py --help</code> のまとめ確認</li>
-  <li>☐ <span class="status s-todo">未着手</span> リファクタリング仕様書の「Phase 4 で扱う持ち越し事項」を更新（解消済みバグの反映）</li>
-  <li>☐ <span class="status s-todo">未着手</span> 報告・承認 → 本書を <code>docs/specs/archive/</code> へ移動 → <strong>Phase 4 へ</strong></li>
+  <li>☑ <span class="status s-done">完了</span> <code>timecode.py</code> の docstring にミリ秒解釈の仕様を明記（テストのコメントも更新）</li>
+  <li>☑ <span class="status s-done">完了</span> pytest 全緑 / ruff / <code>import app</code> / <code>main.py --help</code> のまとめ確認</li>
+  <li>☑ <span class="status s-done">完了</span> リファクタリング仕様書の「Phase 4 で扱う持ち越し事項」を更新</li>
+  <li>☑ <span class="status s-done">完了</span> 報告・承認 → 本書を <code>docs/specs/archive/</code> へ移動 → <strong>Phase 4 へ</strong></li>
 </ul>
 </div>
 
+<h3>最終確認の実行結果（2026-07-27）</h3>
+<pre>.venv/bin/python -m pytest -q            → 351 passed（開始時 285 → +66件）
+.venv/bin/ruff check src/ tests/         → All checks passed!
+.venv/bin/ruff format --check src/ tests/ → 54 files already formatted
+.venv/bin/python -c "import app"         → OK（FastAPI app = 音声→字幕 統合アプリ）
+.venv/bin/python main.py --help          → 終了コード 0
+.venv/bin/python -c "import spark_server" → OK</pre>
+
+<h3>コミット</h3>
+<table>
+  <tr><th>コミット</th><th>内容</th><th>テスト</th></tr>
+  <tr><td><code>633c98c</code></td><td>B-1 出力ファイル名のパストラバーサル</td><td>285 → 321</td></tr>
+  <tr><td><code>04635d7</code></td><td>B-2 distil モデル指定の解決</td><td>321 → 328</td></tr>
+  <tr><td><code>6ca2036</code></td><td>B-3 発話 0 件でも CSV を生成</td><td>328 → 332</td></tr>
+  <tr><td><code>173b057</code></td><td>B-4〜B-7 小さいバグ4件</td><td>332 → 351</td></tr>
+</table>
+
 <h2>12. 未確定事項・クライアント確認待ち</h2>
 <ul>
-  <li><strong>B-3 の方針</strong>: 発話 0 件を「ヘッダのみの CSV を出して成功」とするか、「失敗（<code>False</code>）」とするか（本書の提案は前者）</li>
-  <li><strong>コミットの push</strong>: 各バグ 1 コミットで <code>origin/main</code> へ push してよいか（Phase 0〜3 は push 済み）</li>
-  <li><strong>実機確認</strong>: distil モデルでの実推論確認・Spark（aarch64）でのフォールバック確認を行うか（本書ではモックまで）</li>
+  <li>☑ <strong>B-3 の方針</strong>: 「ヘッダのみの CSV を出して成功」で<strong>承認済み</strong>（2026-07-27）</li>
+  <li>☐ <strong>コミットの push</strong>: 4コミットとも<strong>ローカルのみ・未 push</strong>。<code>origin/main</code> へ push するかは未確認</li>
+  <li>☐ <strong>実機確認</strong>: distil モデルでの実推論と Spark（aarch64）でのフォールバックは<strong>未実施</strong>（モックまで）。
+      必要であれば別途実施する</li>
 </ul>
