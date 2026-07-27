@@ -1,16 +1,27 @@
 """声紋データベース管理モジュール。
 
 voice_databases/<DB名>/<話者名>.<ext> の構造で永続管理する。
+
+削除は**ゴミ箱への退避**として実装している。確認ダイアログを押し間違えても
+``voice_databases/.trash/`` から手で戻せるようにするため。溜まったら手で消す
+運用で、自動削除はしない。
 """
 
 from __future__ import annotations
 
 import os
 import shutil
+from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Optional
 
+from src.common.logging import get_logger
 from src.config import DEFAULT_VOICE_DB_ROOT, INVALID_NAME_CHARS
+
+logger = get_logger(__name__)
+
+#: 削除したものの退避先（ルート直下）。ドット始まりなので DB 一覧には出ない。
+TRASH_DIR_NAME = ".trash"
 
 SUPPORTED_AUDIO_EXTENSIONS = {
     ".wav",
@@ -38,11 +49,15 @@ def get_root() -> Path:
 
 
 def sanitize_name(raw: str) -> Optional[str]:
-    """DB名 / 話者名として使える文字列に整える。NG なら None。"""
+    """DB名 / 話者名として使える文字列に整える。NG なら None。
+
+    ドットで始まる名前は弾く。``.`` / ``..`` によるパストラバーサルに加えて、
+    ゴミ箱（``.trash``）を DB として作成・参照・削除できてしまう経路も塞ぐため。
+    """
     name = (raw or "").strip()
     if not name:
         return None
-    if name in (".", ".."):
+    if name.startswith("."):
         return None
     if any(c in INVALID_NAME_CHARS for c in name):
         return None
@@ -50,11 +65,11 @@ def sanitize_name(raw: str) -> Optional[str]:
 
 
 def list_databases() -> List[Dict]:
-    """DB 一覧をメタ情報付きで返す。"""
+    """DB 一覧をメタ情報付きで返す。ドットで始まる名前は対象外。"""
     root = get_root()
     result = []
     for entry in sorted(root.iterdir()):
-        if not entry.is_dir():
+        if not entry.is_dir() or entry.name.startswith("."):
             continue
         speakers = list_speakers(entry.name)
         result.append(
@@ -90,10 +105,40 @@ def create_database(name: str) -> Path:
     return path
 
 
-def delete_database(name: str) -> None:
-    """DB（ディレクトリ）を中の話者ファイルごと削除する。"""
+def trash_dir() -> Path:
+    """削除したものの退避先を返す（無ければ作る）。"""
+    path = get_root() / TRASH_DIR_NAME
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def move_to_trash(path: Path, label: str) -> Path:
+    """``path`` をゴミ箱へ退避してその場所を返す。
+
+    Args:
+        path: 退避するファイルまたはディレクトリ。
+        label: 退避先に付ける名前。日時を前置きするので、同じものを何度
+            消しても区別できる。同秒に同名を消した場合は連番を足す。
+    """
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    dest = trash_dir() / f"{stamp}_{label}"
+    suffix = 2
+    while dest.exists():
+        dest = trash_dir() / f"{stamp}_{label}_{suffix}"
+        suffix += 1
+    shutil.move(str(path), str(dest))
+    logger.info(f"ゴミ箱へ退避しました: {path} → {dest}")
+    return dest
+
+
+def delete_database(name: str) -> Path:
+    """DB を中の話者ファイルごとゴミ箱へ退避する。
+
+    Returns:
+        退避先のパス。戻したいときはこれをディレクトリごと移動すればよい。
+    """
     path = database_dir(name)
-    shutil.rmtree(path)
+    return move_to_trash(path, path.name)
 
 
 def list_speakers(db_name: str) -> List[Dict]:
@@ -128,10 +173,14 @@ def speaker_path(db_name: str, filename: str) -> Path:
     return path
 
 
-def delete_speaker(db_name: str, filename: str) -> None:
-    """DB 内の話者ファイルを削除する。"""
+def delete_speaker(db_name: str, filename: str) -> Path:
+    """DB 内の話者ファイルをゴミ箱へ退避する。
+
+    Returns:
+        退避先のパス。
+    """
     path = speaker_path(db_name, filename)
-    path.unlink()
+    return move_to_trash(path, f"{path.parent.name}_{path.name}")
 
 
 def rename_speaker(db_name: str, filename: str, new_speaker_name: str) -> Path:

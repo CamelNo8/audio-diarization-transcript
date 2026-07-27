@@ -1,10 +1,11 @@
-"""声紋データベース操作の特性テスト（現 src/voice_db/registry.py）。
+"""声紋データベース操作の特性テスト。
 
-Phase 3 で src/voice_db/registry.py へ移設する。
-DB名・ファイル名の検証（規約7.1）を含めてここで固定する。
+DB名・ファイル名の検証（規約7.1）と、削除がゴミ箱への退避になることを固定する。
 """
 
 from __future__ import annotations
+
+import re
 
 import pytest
 
@@ -28,7 +29,21 @@ class TestDB名の検証:
         assert vdb.sanitize_name(name) == name.strip()
 
     @pytest.mark.parametrize(
-        "invalid", ["", "   ", ".", "..", "a/b", "a\\b", "a:b", "a*b", "a?b", 'a"b']
+        "invalid",
+        [
+            "",
+            "   ",
+            ".",
+            "..",
+            ".trash",
+            ".隠し",
+            "a/b",
+            "a\\b",
+            "a:b",
+            "a*b",
+            "a?b",
+            'a"b',
+        ],
     )
     def test_使えない名前はNoneになる(self, invalid):
         assert vdb.sanitize_name(invalid) is None
@@ -67,6 +82,77 @@ class TestDBの作成と一覧と削除:
         vdb.delete_database("会議A")
 
         assert vdb.list_databases() == []
+
+
+class Testゴミ箱への退避:
+    """削除は不可逆にしない。確認ダイアログを押し間違えても手で戻せること。"""
+
+    def test_削除したDBはゴミ箱に残る(self, tmp_path):
+        vdb.create_database("会議A")
+        _add_dummy_audio("会議A", "太郎.wav", tmp_path)
+
+        退避先 = vdb.delete_database("会議A")
+
+        assert 退避先.is_dir()
+        assert (退避先 / "太郎.wav").read_bytes() == b"dummy audio"
+        assert 退避先.parent == vdb.get_root() / vdb.TRASH_DIR_NAME
+
+    def test_退避先の名前は日時とDB名からなる(self):
+        vdb.create_database("会議A")
+
+        退避先 = vdb.delete_database("会議A")
+
+        assert re.fullmatch(r"\d{8}-\d{6}_会議A", 退避先.name), (
+            f"想定外の書式: {退避先.name}"
+        )
+
+    def test_削除した話者ファイルはゴミ箱に残る(self, tmp_path):
+        vdb.create_database("会議A")
+        _add_dummy_audio("会議A", "太郎.wav", tmp_path)
+
+        退避先 = vdb.delete_speaker("会議A", "太郎.wav")
+
+        assert 退避先.read_bytes() == b"dummy audio"
+        assert re.fullmatch(r"\d{8}-\d{6}_会議A_太郎\.wav", 退避先.name)
+
+    def test_同名を続けて削除しても上書きされない(self, tmp_path):
+        vdb.create_database("会議A")
+        _add_dummy_audio("会議A", "太郎.wav", tmp_path)
+        一度目 = vdb.delete_speaker("会議A", "太郎.wav")
+
+        _add_dummy_audio("会議A", "太郎.wav", tmp_path)
+        二度目 = vdb.delete_speaker("会議A", "太郎.wav")
+
+        assert 一度目 != 二度目
+        assert 一度目.is_file() and 二度目.is_file()
+
+    def test_ゴミ箱はDB一覧に出ない(self):
+        vdb.create_database("会議A")
+        vdb.delete_database("会議A")
+
+        assert (vdb.get_root() / vdb.TRASH_DIR_NAME).is_dir()
+        assert vdb.list_databases() == []
+
+    def test_ゴミ箱をDBとして操作できない(self):
+        vdb.create_database("会議A")
+        vdb.delete_database("会議A")
+
+        assert vdb.sanitize_name(vdb.TRASH_DIR_NAME) is None
+        with pytest.raises(ValueError, match="無効なデータベース名"):
+            vdb.database_dir(vdb.TRASH_DIR_NAME)
+        with pytest.raises(ValueError, match="無効なデータベース名"):
+            vdb.delete_database(vdb.TRASH_DIR_NAME)
+
+    def test_ゴミ箱から戻せば復旧できる(self, tmp_path):
+        vdb.create_database("会議A")
+        _add_dummy_audio("会議A", "太郎.wav", tmp_path)
+        退避先 = vdb.delete_database("会議A")
+
+        # 利用者が手でやる復旧操作（ディレクトリを元の名前に戻すだけ）
+        退避先.rename(vdb.get_root() / "会議A")
+
+        assert [d["name"] for d in vdb.list_databases()] == ["会議A"]
+        assert [s["filename"] for s in vdb.list_speakers("会議A")] == ["太郎.wav"]
 
 
 class Test話者ファイルの登録と一覧:
