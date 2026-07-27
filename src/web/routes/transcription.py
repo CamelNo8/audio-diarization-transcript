@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse
 
 import src.voice_db.registry as vdb
+from src.common.files import remove_quietly
 from src.common.filenames import safe_output_name
 from src.common.logging import get_logger
 from src.config import (
@@ -219,7 +220,7 @@ def _store_registry_uploads(
         try:
             vdb.add_speaker_file(registry_dir.name, tmp_upload, dest_filename=rname)
         finally:
-            storage.remove_quietly(tmp_upload)
+            remove_quietly(tmp_upload)
 
 
 def _resolve_output_paths(output_srt_name: str) -> Tuple[Path, Path]:

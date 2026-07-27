@@ -13,10 +13,7 @@ from pathlib import Path
 
 from fastapi import UploadFile
 
-from src.common.logging import get_logger
 from src.config import TEMP_DIR as _CONFIGURED_TEMP_DIR
-
-logger = get_logger(__name__)
 
 #: 作業ディレクトリ。テストではこのモジュール属性を差し替える。
 TEMP_DIR = _CONFIGURED_TEMP_DIR
@@ -45,15 +42,3 @@ def save_upload(upload: UploadFile, name: str) -> Path:
     with open(dest, "wb") as f:
         shutil.copyfileobj(upload.file, f)
     return dest
-
-
-def remove_quietly(path: Path) -> None:
-    """一時ファイルを削除する。消せなくても処理は続ける。
-
-    削除できない一時ファイルは次の実行で上書きされるだけなので、
-    利用者への通知はせずログに残すにとどめる。
-    """
-    try:
-        path.unlink()
-    except OSError as e:
-        logger.debug(f"一時ファイルを削除できませんでした: {path} ({e})")

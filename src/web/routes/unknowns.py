@@ -16,13 +16,14 @@ from fastapi.responses import FileResponse, HTMLResponse
 
 import src.voice_db.registry as vdb
 from src.common.audio import extract_audio
+from src.common.files import remove_quietly
 from src.common.logging import get_logger
 from src.config import (
     DEFAULT_EMBEDDING_MODEL,
     DEFAULT_SPEAKER_THRESHOLD,
     UNKNOWN_LABEL_PREFIX,
 )
-from src.web import jobs, storage
+from src.web import jobs
 from src.web.converters import csv_to_srt_with_speaker
 from src.web.errors import WebInputError
 from src.web.forms import parse_opt_float
@@ -224,7 +225,7 @@ def _register_clip_as_speaker(
         raise WebInputError(f"DB保存エラー: {e}") from e
     finally:
         if tmp_crop is not None:
-            storage.remove_quietly(tmp_crop)
+            remove_quietly(tmp_crop)
 
 
 def _prepare_clip(

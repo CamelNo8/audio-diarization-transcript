@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Optional
 
 from src.common.audio import extract_audio
+from src.common.files import remove_quietly
 from src.common.logging import get_logger
 from src.config import INVALID_NAME_CHARS
 from src.diarization.clusters import (
@@ -103,7 +104,7 @@ def _resolve_one(
             cluster_id, clip_path, assignments, registry_dir
         )
     finally:
-        _unlink_quietly(clip_path)
+        remove_quietly(clip_path)
 
     if resolved is None:
         return None
@@ -182,7 +183,7 @@ def _extract_cluster_audio(
         extract_audio(wav_path, tmp_path, start=segment.start, end=segment.end)
     except subprocess.CalledProcessError as e:
         logger.warning(f"代表音声の切り出しに失敗: {e.stderr}")
-        _unlink_quietly(tmp_path)
+        remove_quietly(tmp_path)
         return None
     return tmp_path
 
@@ -300,11 +301,3 @@ def _confirm_overwrite(target: Path) -> bool:
     except EOFError:
         return False
     return answer.strip().lower() == "y"
-
-
-def _unlink_quietly(path: Path) -> None:
-    """一時ファイルを削除する。消せなくても処理は続行する。"""
-    try:
-        path.unlink()
-    except OSError:
-        pass

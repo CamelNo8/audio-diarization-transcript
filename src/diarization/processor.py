@@ -19,6 +19,7 @@ from pyannote.core import Segment
 
 from src.common.audio import extract_audio
 from src.common.csv_io import write_rows
+from src.common.files import remove_quietly
 from src.common.logging import get_logger
 from src.diarization import clusters as clusters_mod
 from src.diarization.clusters import ClusterAssignments
@@ -136,10 +137,7 @@ class AudioProcessor:
         replaced = extract_vocals(self.temp_wav_path, self.separator_model)
         if replaced is None:
             return
-        try:
-            self.temp_wav_path.unlink()
-        except OSError:
-            pass
+        remove_quietly(self.temp_wav_path)
         self.temp_wav_path = replaced
         logger.info(f"ボーカル抽出済み: {self.temp_wav_path}")
 

@@ -27,7 +27,7 @@
 <h1>コードベース全体リファクタリング 仕様書</h1>
 
 <div class="meta">
-  <strong>ステータス:</strong> <span class="status s-doing">進行中</span>（Phase 0〜4 の実装完了 / <strong>次は Phase 5</strong>）<br>
+  <strong>ステータス:</strong> <span class="status s-done">完了</span>（Phase 0〜5 すべて完了 / 2026-07-28 アーカイブ）<br>
   <strong>最終更新日:</strong> 2026-07-28<br>
   <strong>対象リポジトリ:</strong> <code>audio-diarization-transcript</code>（ブランチ <code>main</code>）
 </div>
@@ -461,13 +461,12 @@ import とインターフェースの整合までしか保証されない。実�
 
 <div class="phase">
 <div class="warn">
-<strong>中断: 2026-07-27。既存バグの解消（別仕様書）を挟み、2026-07-28 に Phase 4 を実施した。次はここから再開する。</strong>
+<strong>経緯: 2026-07-27 に Phase 0〜3 を実施したのち中断。既存バグの解消（別仕様書）を挟み、2026-07-28 に Phase 4・5 を実施して完了。</strong>
 <ul>
-  <li><strong>再開位置: Phase 5（Spark 連携・仕上げ）の最初のタスクから。</strong> Phase 0〜4 は完了済み。</li>
-  <li>Phase 5 の着手前に、クライアントへ着手可否を確認する（フェーズごとの承認が本作業の取り決め）。</li>
-  <li>再開時の健全性確認コマンド:
-      <code>.venv/bin/python -m pytest -q</code>（<strong>398件 passed</strong> が現状）、
-      <code>.venv/bin/ruff check src/ tests/ app.py main.py</code>、
+  <li><strong>全フェーズ完了。</strong> 以降の作業は「11. 未確定事項」の項目から選ぶ。</li>
+  <li>健全性確認コマンド:
+      <code>.venv/bin/python -m pytest -q</code>（<strong>406件 passed</strong> が現状）、
+      <code>.venv/bin/ruff check .</code>、
       <code>.venv/bin/python -c "import app"</code>。</li>
   <li><strong>既存バグは Phase 4 着手前にすべて解消済み</strong>（2026-07-27）。
       <code>docs/specs/archive/2026-07-27_既存バグの解消.html</code> を参照。
@@ -571,22 +570,180 @@ import とインターフェースの整合までしか保証されない。実�
 </div>
 
 <div class="phase">
-<h3>Phase 5 — Spark 連携・仕上げ <span class="status s-todo">未着手</span></h3>
+<h3>Phase 5 — Spark 連携・仕上げ <span class="status s-done">完了</span>（2026-07-28 / commit 2ab1c78・6962c83）</h3>
 <ul class="todo">
-  <li>☐ <span class="status s-todo">未着手</span> <code>spark_server.py</code> / <code>spark_client.py</code> を <code>src/spark/</code> へ移設し、起動方法の互換性を確認</li>
-  <li>☐ <span class="status s-todo">未着手</span> <code>spark-up.sh</code> / <code>spark-down.sh</code> / <code>spark-logs.sh</code> を実態に追随（必要な場合のみ）</li>
-  <li>☐ <span class="status s-todo">未着手</span> 特性テスト #13（エントリポイント）を作成</li>
-  <li>☐ <span class="status s-todo">未着手</span> デッドコード・未使用 import・コメントアウトコードの一掃</li>
-  <li>☐ <span class="status s-todo">未着手</span> <code>ruff check</code> / <code>ruff format</code> をリポジトリ全体に適用</li>
-  <li>☐ <span class="status s-todo">未着手</span> 規約4.1 の残違反箇所を洗い出し、超過が残る場合は理由を明記</li>
-  <li>☐ <span class="status s-todo">未着手</span> README を更新（構成図・実行手順・テスト実行方法）</li>
-  <li>☐ <span class="status s-todo">未着手</span> リファクタ中に発見した既存バグ・設計上の懸念を一覧化して報告（本作業では直さない）</li>
-  <li>☐ <span class="status s-todo">未着手</span> 全 ToDo 完了 → ステータスを「完了」に更新し <code>docs/specs/archive/</code> へ移動</li>
+  <li>☑ <span class="status s-done">完了</span> <code>spark_server.py</code> / <code>spark_client.py</code> を <code>src/spark/</code> へ移設し、起動方法の互換性を確認</li>
+  <li>☑ <span class="status s-done">完了</span> <code>spark-up.sh</code> / <code>spark-down.sh</code> / <code>spark-logs.sh</code> を実態に追随（<strong>変更不要だった</strong>。3本とも起動するのは <code>app.py</code> で、移設対象ではないため）</li>
+  <li>☑ <span class="status s-done">完了</span> 特性テスト #13（エントリポイント）を作成</li>
+  <li>☑ <span class="status s-done">完了</span> デッドコード・未使用 import・コメントアウトコードの一掃</li>
+  <li>☑ <span class="status s-done">完了</span> <code>ruff check</code> / <code>ruff format</code> をリポジトリ全体に適用</li>
+  <li>☑ <span class="status s-done">完了</span> 規約4.1 の残違反箇所を洗い出し、超過が残る場合は理由を明記</li>
+  <li>☑ <span class="status s-done">完了</span> README を更新（構成図・実行手順・テスト実行方法）</li>
+  <li>☑ <span class="status s-done">完了</span> リファクタ中に発見した既存バグ・設計上の懸念を一覧化して報告</li>
+  <li>☑ <span class="status s-done">完了</span> 全 ToDo 完了 → ステータスを「完了」に更新し <code>docs/specs/archive/</code> へ移動</li>
 </ul>
+
+<h4>Phase 4 からの持ち越し4件（クライアント判断 2026-07-28）</h4>
+<table>
+  <tr><th>事項</th><th>判断</th><th>対応</th></tr>
+  <tr>
+    <td><code>configure_logging()</code> を Web 起動時に呼ぶか</td>
+    <td>アプリの振る舞いが変わらないなら気にしない</td>
+    <td><strong>呼ぶようにした。</strong> <code>main.py</code> と同じ形。HTTP 応答・画面表示・生成物は不変で、
+        変わるのはサーバーのコンソール出力だけ。Spark 運用では <code>/tmp/app.log</code> に
+        自前モジュールの INFO ログが出るようになり、<code>spark-logs.sh</code> で進捗を追えるようになる
+        （従来は WARNING 以上しか出ていなかった）。</td>
+  </tr>
+  <tr>
+    <td>「HF トークン未設定」の文言が2種類ある</td>
+    <td>揃える</td>
+    <td><code>src/web/identification.resolve_hf_token()</code> に一本化。ラベル付け側も
+        「.env の HF_TOKEN または詳細設定で指定してください。」まで案内する長い方に統一した。</td>
+  </tr>
+  <tr>
+    <td><code>DENOISE_MODELS</code> の重複</td>
+    <td>モジュール化して使う</td>
+    <td><code>src/config.py</code> へ集約（規約4.5）。Web と Spark サーバーの両方がここを参照する。
+        Web 側には <code>"off"</code> キーが無かったが、<code>.get()</code> がどちらも <code>None</code> を
+        返すため挙動は同じ。</td>
+  </tr>
+  <tr>
+    <td>リポジトリ全体の <code>ruff check</code> 未通過</td>
+    <td>Phase 5 で通るはず</td>
+    <td><strong>通した。</strong> <code>ruff check .</code> / <code>ruff format --check .</code> ともにリポジトリ全体（85 ファイル）で通過。</td>
+  </tr>
+</table>
+
+<h4>Phase 5 の結果</h4>
+<ul>
+  <li><strong>テスト:</strong> 398 → <strong>406件 passed</strong>（特性テスト #13 で +8件）。</li>
+  <li><strong>Spark 連携の移設（<code>git mv</code>）:</strong>
+      <code>spark_server.py</code> → <code>src/spark/server.py</code>、
+      <code>spark_client.py</code> → <code>src/spark/client.py</code>。
+      どちらも他モジュールから import されていなかったため、参照の修正は不要だった。
+      起動方法は <code>uvicorn spark_server:app</code> → <code>uvicorn src.spark.server:app</code>、
+      <code>python spark_client.py</code> → <code>python -m src.spark.client</code> に変わる（README に記載）。</li>
+  <li><strong>シェルスクリプトは変更なし。</strong> <code>spark-up.sh</code> /
+      <code>spark-down.sh</code> / <code>spark-logs.sh</code> が起動・停止・監視するのは
+      <code>app.py</code>（Path 1）であり、今回移設した Path 2 のモジュールとは無関係。
+      <code>app.py</code> はルートに残したので参照は生きている。</li>
+  <li><strong>ログ出力の統一:</strong> <code>src/spark/server.py</code> の
+      <code>logging.basicConfig</code> / <code>logging.info</code> 直接利用を
+      <code>src/common/logging</code> へ揃えた。<code>src/spark/client.py</code> の
+      <code>print</code> もロガーに置き換え、<code>__main__</code> を
+      <code>_main(argv) -> int</code> に切り出して終了コードを返すようにした。</li>
+  <li><strong>規約4.1 への追随（今回の移設・分割で触れた範囲）:</strong>
+      <code>_run_job</code>（引数7個・56行）→ <code>_JobRequest</code> と <code>_transcribe()</code> に分解、
+      <code>create_job</code>（引数6個）→ <code>JobOptions</code> + <code>Depends()</code>、
+      <code>transcribe_on_spark</code>（引数9個・59行）→ <code>SparkJobOptions</code> と
+      <code>_create_job</code> / <code>_wait_until_done</code> / <code>_download_vocals</code> に分解、
+      <code>_run_transcription</code>（引数5個）→ <code>_TranscriptionRun</code>、
+      <code>api_trim_speaker</code>（引数5個）→ <code>TrimForm</code>。</li>
+  <li><strong>テストファイルの分割:</strong> Phase 4 で 720行になった
+      <code>tests/test_web_routes.py</code> を、ルートの分割に合わせて
+      <code>test_web_transcription.py</code> / <code>test_web_matching.py</code> /
+      <code>test_web_databases.py</code> / <code>test_web_unknowns.py</code> と
+      残り（画面表示・字幕生成・ダウンロード）の5ファイルにした。件数は不変。</li>
+  <li><strong>依存の明示:</strong> <code>src/spark/client.py</code> が <code>requests</code> を直接使うのに
+      <code>pyproject.toml</code> に宣言が無かった。<code>src/</code> は配布対象
+      （<code>only-include</code>）なので <code>requests&gt;=2.31</code> を追加した。
+      <code>huggingface_hub</code> 経由で既に入るため、実際にインストールされるものは増えない。</li>
+  <li><strong>デッドコード:</strong> 使われていない関数・コメントアウトされたコード・
+      <code>TODO</code> / <code>FIXME</code> は残っていなかった（AST で全 top-level 定義の参照を確認）。
+      未使用 import は <code>ruff</code> の F401 で 0 件。</li>
+  <li><strong>一時ファイル削除の共通化:</strong> 「消せなくても続行する削除」が
+      <code>src/diarization/interactive.py</code> / <code>speaker_identifier.py</code>（各1関数）、
+      <code>processor.py</code> / <code>vocals.py</code>（各インライン）、
+      <code>src/web/storage.py</code>（Phase 4 で追加）の<strong>5箇所に重複</strong>していた。
+      <code>src/common/files.remove_quietly()</code> に一本化し、元の実装は残さなかった（規約4.3）。
+      <code>unlink(missing_ok=True)</code> を使うが、<code>FileNotFoundError</code> は
+      <code>OSError</code> なので元の実装と同じ挙動になる。</li>
+</ul>
+
+<h4>規約4.1 の残違反（Phase 1〜3 で確立した範囲。今回は触らない）</h4>
+<table>
+  <tr><th>箇所</th><th>超過</th><th>残す理由</th></tr>
+  <tr><td><code>src/diarization/processor.py</code> <code>AudioProcessor</code></td><td>282行 / 上限200行</td>
+      <td>Phase 3 で pipeline / vocals / clusters / transcript へ分離した後の「司令塔」。
+          これ以上割ると、パイプライン全体の手順が読める場所が無くなる。
+          分割するなら状態（<code>ClusterAssignments</code> 等）の持ち方から設計し直す必要があり、
+          リファクタではなく再設計になる。</td></tr>
+  <tr><td><code>__init__</code>（同上）</td><td>引数11個 / 上限4個</td>
+      <td>CLI・Web・Spark の3経路から同じ形で呼ばれている公開インターフェース。
+          設定オブジェクトへまとめると3経路すべての呼び出し側が変わるため、別タスクにするのが安全。</td></tr>
+  <tr><td><code>src/common/audio.py</code> <code>build_extract_command</code> / <code>extract_audio</code></td><td>引数6個</td>
+      <td>うち4個はキーワード専用の省略可能な引数（<code>start</code> / <code>end</code> /
+          <code>to_wav16k</code> / <code>quiet</code>）で、ffmpeg の呼び出し形をそのまま写している。</td></tr>
+  <tr><td><code>src/subtitle/</code> の <code>export_results_to_csv</code> ほか5関数</td><td>引数5〜6個</td>
+      <td>Phase 2 で確立済み。DataFrame と閾値の受け渡しが中心で、まとめても呼び出し側が読みやすくならない。</td></tr>
+  <tr><td><code>src/diarization/interactive.py</code> / <code>transcript.py</code> の3関数</td><td>引数5〜7個</td>
+      <td>Phase 3 で確立済み。</td></tr>
+  <tr><td><code>src/transcription/backend.py</code> <code>transcribe_full</code></td><td>引数5個</td>
+      <td>バックエンド共通のインターフェース。減らすとバックエンド側の実装が受け取れなくなる。</td></tr>
+  <tr><td><code>tests/test_subtitle_export.py</code></td><td>471行 / 上限400行</td>
+      <td>Phase 2 で作成。独立したテストケースの集まりで、分割しても読みやすさは変わらない。</td></tr>
+  <tr><td><code>tools/check_transcript_ms_integer.py</code> <code>main</code></td><td>58行</td>
+      <td>調査用の使い捨てスクリプト。出力（<code>print</code>）が成果物そのものなので、
+          分割せず1関数のレポートとして残す。その旨を docstring に明記した。</td></tr>
+</table>
+
+<h4>発見した既存バグ・設計上の懸念（本作業では直していない）</h4>
+<table>
+  <tr><th>#</th><th>内容</th><th>影響</th><th>提案</th></tr>
+  <tr><td>1</td>
+      <td><code>src/spark/client.py</code> はどこからも import されていない。
+          Spark 運用は現在 Path 1（Spark 上で <code>app.py</code> を動かす）のみで、
+          Path 2（推論 API）の経路は使われていない。</td>
+      <td>低。動いていないコードを保守し続けることになる。</td>
+      <td>Path 2 に進むかを決める。進まないなら削除、進むなら通しの結合テストを足す。</td></tr>
+  <tr><td>2</td>
+      <td>ジョブ状態（Web の <code>_JOBS</code>、Spark の <code>JOBS</code>）が
+          プロセス内メモリにある。Web はファイル（<code>job.json</code>）にも書くが、
+          Spark 側はメモリのみで再起動すると消える。</td>
+      <td>中。uvicorn を複数ワーカーで起動すると、リクエストごとに別プロセスへ振られてジョブが見つからない。
+          現在は単一ワーカーなので顕在化していない。</td>
+      <td>複数ワーカーで運用する予定があるなら、Web と同じくファイル or 外部ストアへ寄せる。</td></tr>
+  <tr><td>3</td>
+      <td>文字起こし（Step 1）が同期処理。長尺だと uvicorn のタイムアウトに当たりうる。</td>
+      <td>中。README に <code>--timeout-keep-alive</code> の調整として既述。</td>
+      <td>Spark サーバーと同じ「job_id を即返して裏で処理」方式に寄せると根本解決になる。</td></tr>
+  <tr><td>4</td>
+      <td><code>except Exception</code> が全体で33箇所ある。AST で「ログも再送出も返り値も無い」ものを
+          抽出したところ10箇所該当したが、精査するとすべて
+          <strong>機能検出のフォールバック</strong>（古い faiss に <code>omp_set_num_threads</code> が無い、
+          torch/MPS が無い、CUDA が使えない）か
+          <strong>一時ファイルの後始末</strong>で、握りつぶすことが妥当なものだった。
+          <strong>直すべき握りつぶしは無い。</strong></td>
+      <td>なし。</td>
+      <td>対応不要。ただし後始末の重複は下記のとおり共通化した。</td></tr>
+  <tr><td>5</td>
+      <td>声紋DB の削除（<code>DELETE /api/databases/{name}</code>）は確認なしで即時・不可逆。
+          GUI 側にも確認ダイアログは無い。</td>
+      <td>中。誤操作で登録済みの声紋がすべて消える。</td>
+      <td>削除前の確認、またはゴミ箱ディレクトリへの退避。</td></tr>
+  <tr><td>6</td>
+      <td><code>/process/matching</code> の <code>if not job_id</code> は、値が届かない要求では
+          到達しない（FastAPI の検証が先に 422 を返す）。ブラウザのフォーム送信では空文字が届くため
+          案内文も使われるが、経路が二重になっている。</td>
+      <td>低。特性テストで両方の挙動を固定済み。</td>
+      <td>422 のときも htmx で読める形に整えるなら、例外ハンドラを足す。</td></tr>
+  <tr><td>7</td>
+      <td><code>/unknowns/{job_id}/clip/{cluster_id}</code> のパス区切り検査（400）は
+          経路解決の 404 に先を越されるため到達しない。</td>
+      <td>なし（多層防御として意図的に残置）。</td>
+      <td>そのままでよい。</td></tr>
+</table>
 </div>
 
 <h2>11. 未確定事項・クライアント確認待ち</h2>
 <ul>
-  <li>Phase 5 完了時に<strong>実音声での通し確認</strong>を追加するか（現計画では未実施）。</li>
-  <li>Spark サーバ側のリポジトリ更新（<code>git pull</code> 等）は本作業の対象外とし、クライアント側で実施いただく想定。</li>
+  <li><strong>実音声での通し確認は本作業に含めていない</strong>（8章の「検証範囲の限界」のとおり）。
+      重いモデルはすべてモックしているため、pyannote / Whisper / audio-separator の実推論を経由する経路は
+      import とインターフェースの整合までしか保証されない。
+      <strong>Spark で実際の音声を1本流して、分割前と同じ結果になることの確認をお願いしたい。</strong></li>
+  <li>Spark サーバ側のリポジトリ更新（<code>git pull</code> 等）は本作業の対象外とし、クライアント側で実施いただく想定。
+      今回 <code>app.py</code> の中身が変わっているため、<strong>Spark 側で <code>git pull</code> したあとは
+      稼働中の <code>app.py</code> を一度停止（<code>./spark-down.sh --stop-server</code>）</strong>してから
+      <code>./spark-up.sh</code> で起動し直す必要がある。</li>
+  <li>上の「発見した既存バグ・設計上の懸念」7件を、別タスクとして着手するかどうか。</li>
 </ul>

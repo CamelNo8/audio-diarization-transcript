@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 
 import src.voice_db.registry as vdb
 from src.common.audio import extract_audio
+from src.common.files import remove_quietly
 from src.common.logging import get_logger
 from src.web import storage
 from src.web.forms import parse_opt_float
@@ -129,7 +130,7 @@ async def api_upload_speakers(
         except ValueError as e:
             logger.warning(f"upload skipped ({rname}): {e}")
         finally:
-            storage.remove_quietly(tmp)
+            remove_quietly(tmp)
 
     return _render_speakers(request, name)
 
@@ -199,7 +200,7 @@ async def api_trim_speaker(
         extract_audio(path, tmp, start=crop_start, end=crop_end, to_wav16k=False)
         shutil.move(str(tmp), str(path))
     except subprocess.CalledProcessError as e:
-        storage.remove_quietly(tmp)
+        remove_quietly(tmp)
         return render_error(request, f"音声の切り出しに失敗しました: {e.stderr}")
 
     return _render_speakers(request, name)

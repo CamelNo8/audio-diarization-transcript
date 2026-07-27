@@ -23,6 +23,7 @@ from pyannote.audio import Inference, Model  # noqa: E402
 from scipy.spatial.distance import cdist  # noqa: E402
 
 from src.common.audio import extract_audio, probe_duration_sec  # noqa: E402
+from src.common.files import remove_quietly  # noqa: E402
 from src.common.logging import get_logger  # noqa: E402
 from src.config import (  # noqa: E402
     DEFAULT_SPEAKER_THRESHOLD,
@@ -158,7 +159,7 @@ class SpeakerIdentifier:
                 f"登録音声のトリミングに失敗したため元音声を使用します "
                 f"({audio_path}): {e.stderr}"
             )
-            _unlink_quietly(tmp_path)
+            remove_quietly(tmp_path)
             return None
 
         return tmp_path
@@ -235,13 +236,3 @@ class SpeakerIdentifier:
         if best_dist <= self.threshold:
             return best_name, best_dist, distances
         return self._next_unknown_name(), best_dist, distances
-
-
-def _unlink_quietly(path: Path) -> None:
-    """一時ファイルを削除する。消せなくても処理は続行する。"""
-    if not path.exists():
-        return
-    try:
-        path.unlink()
-    except OSError:
-        pass

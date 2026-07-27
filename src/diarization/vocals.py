@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Optional
 
 from src.common.audio import extract_audio
+from src.common.files import remove_quietly
 from src.common.logging import get_logger
 from src.config import DEFAULT_SEPARATOR_MODEL
 
@@ -115,9 +116,6 @@ def _to_16k_mono(vocals_path: Path) -> Optional[Path]:
         logger.warning(
             f"ボーカル出力の 16kHz 変換に失敗。元音声で続行します。\n{e.stderr}"
         )
-        try:
-            replaced_path.unlink()
-        except OSError:
-            pass
+        remove_quietly(replaced_path)
         return None
     return replaced_path
