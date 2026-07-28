@@ -15,8 +15,15 @@
         <header class="mb-8">
             <div class="flex items-center justify-between">
                 <h1 class="text-3xl font-bold text-gray-900 tracking-tight">🔍 未登録話者のラベル付け</h1>
-                <a href="/" class="text-sm text-purple-600 hover:text-purple-700 underline">
-                    ← トップに戻る
+                {#
+                  この画面は Step 1 の結果から別タブで開かれる。単に「/」へ遷移すると
+                  そのタブが空のトップ画面になり、元タブの結果を見失ったように感じる。
+                  別タブで開かれている場合はタブを閉じ、Step 1 の結果が残っている
+                  元のタブへ戻す。直接 URL を開いた場合だけ従来どおり「/」へ遷移する。
+                #}
+                <a href="/" id="back-link"
+                   class="text-sm text-purple-600 hover:text-purple-700 underline">
+                    ← 閉じて元の画面に戻る
                 </a>
             </div>
             <p class="mt-2 text-sm text-gray-500">
@@ -34,6 +41,16 @@
             {% include "partials/unknowns_list.html" %}
         </div>
     </div>
+
+    <script>
+        // 別タブで開かれている場合だけタブを閉じる。window.opener が無い
+        // （直接 URL を開いた）場合は href のまま「/」へ遷移させる。
+        document.getElementById('back-link').addEventListener('click', (e) => {
+            if (!window.opener || window.opener.closed) return;
+            e.preventDefault();
+            window.close();
+        });
+    </script>
 
     {% include "partials/crop_editor_script.html" %}
 </body>

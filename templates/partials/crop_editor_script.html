@@ -36,36 +36,52 @@
             plugins: [regions],
         });
 
+        // 選択中のリージョン。null = 未選択（＝全体を保存）。
+        // 全体を覆うリージョンを最初から置くと、波形上のドラッグが「新規選択」ではなく
+        // 「リージョンの移動」になってしまい、範囲を狭められない。そのため初期状態は
+        // 選択なしにして、ドラッグで初めてリージョンが生まれるようにする。
         let region = null;
         let duration = 0;
 
         function clamp(v) { return Math.max(0, Math.min(v, duration)); }
 
+        function showRange(s, e) {
+            startInput.value = s.toFixed(2);
+            endInput.value = e.toFixed(2);
+        }
+
+        function clearRange() {
+            if (region) { region.remove(); region = null; }
+            startInput.value = '';
+            endInput.value = '';
+        }
+
         ws.on('decode', (d) => {
             duration = d;
             startInput.max = d.toFixed(2);
             endInput.max = d.toFixed(2);
-            region = regions.addRegion({
-                start: 0,
-                end: d,
-                color: 'rgba(124,58,237,0.15)',
-                drag: true,
-                resize: true,
-            });
-            startInput.value = '0.00';
-            endInput.value = d.toFixed(2);
+            regions.enableDragSelection({ color: 'rgba(124,58,237,0.15)' });
         });
 
-        // 波形ドラッグ → 数値入力へ反映
+        // ドラッグで新しいリージョンができたら、古い方は捨てて常に1つだけにする
+        regions.on('region-created', (r) => {
+            if (region && r !== region) region.remove();
+            region = r;
+            showRange(r.start, r.end);
+        });
+
+        // 波形ドラッグ（移動・端のリサイズ）→ 数値入力へ反映
         regions.on('region-updated', (r) => {
             if (r !== region) return;
-            startInput.value = r.start.toFixed(2);
-            endInput.value = r.end.toFixed(2);
+            showRange(r.start, r.end);
         });
 
-        // 数値入力 → 波形リージョンへ反映
+        // 数値入力 → 波形リージョンへ反映（未選択なら、その範囲で作る）
         function applyInputs() {
-            if (!region) return;
+            if (startInput.value === '' && endInput.value === '') {
+                clearRange();
+                return;
+            }
             let s = parseFloat(startInput.value);
             let e = parseFloat(endInput.value);
             if (isNaN(s)) s = 0;
@@ -73,22 +89,24 @@
             s = clamp(s);
             e = clamp(e);
             if (e < s) e = s;
-            region.setOptions({ start: s, end: e });
-            startInput.value = s.toFixed(2);
-            endInput.value = e.toFixed(2);
+            if (region) {
+                region.setOptions({ start: s, end: e });
+            } else {
+                region = regions.addRegion({
+                    start: s, end: e,
+                    color: 'rgba(124,58,237,0.15)',
+                    drag: true, resize: true,
+                });
+            }
+            showRange(s, e);
         }
         startInput.addEventListener('change', applyInputs);
         endInput.addEventListener('change', applyInputs);
 
         const api = {
             ws,
-            playSelection() { if (region) region.play(); },
-            reset() {
-                if (!region) return;
-                region.setOptions({ start: 0, end: duration });
-                startInput.value = '0.00';
-                endInput.value = duration.toFixed(2);
-            },
+            playSelection() { region ? region.play() : ws.play(); },
+            reset: clearRange,
         };
         window.cropEditors[id] = api;
         return api;

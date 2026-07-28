@@ -14,6 +14,7 @@ from pyannote.core import Segment
 from src.common.logging import get_logger
 from src.common.timecode import format_time
 from src.diarization.clusters import ClusterAssignments, dominant_cluster
+from src.transcription.hallucination import HallucinationFilter
 
 logger = get_logger(__name__)
 
@@ -35,22 +36,39 @@ def build_rows(
         assignments: クラスタごとの照合結果。
 
     Returns:
-        1行目がヘッダの二次元リスト。本文が空のセグメントは除く。
+        1行目がヘッダの二次元リスト。本文が空のセグメントと、
+        幻聴とみなしたセグメントは除く。
     """
     rows = [CSV_HEADER]
+    # 直前の行との比較を行うため、1回の文字起こしで1インスタンスを使い回す
+    hallucination = HallucinationFilter()
     for seg in segments:
-        row = _build_row(diarization, seg, assignments)
+        row = _build_row(diarization, seg, assignments, hallucination)
         if row is not None:
             rows.append(row)
     return rows
 
 
 def _build_row(
-    diarization, seg: Dict, assignments: ClusterAssignments
+    diarization,
+    seg: Dict,
+    assignments: ClusterAssignments,
+    hallucination: HallucinationFilter,
 ) -> Optional[List[str]]:
-    """1つのセグメントを CSV の1行にする（本文が空なら ``None``）。"""
+    """1つのセグメントを CSV の1行にする。
+
+    本文が空、または幻聴とみなした場合は ``None`` を返す。
+    """
     text = seg["text"].strip()
     if not text:
+        return None
+
+    reason = hallucination.reason_to_drop(text)
+    if reason is not None:
+        logger.info(
+            f"  [{format_time(seg['start'])} - {format_time(seg['end'])}] "
+            f"ハルシネーションとして除去（{reason}）: {text}"
+        )
         return None
 
     cluster_id = dominant_cluster(diarization, Segment(seg["start"], seg["end"]))

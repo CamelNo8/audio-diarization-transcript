@@ -138,8 +138,26 @@
             <span class="ml-2 text-xs text-gray-400">距離 {{ "%.4f"|format(c.distance) }}</span>
             {% endif %}
         </div>
-        <audio controls preload="none" src="/unknowns/{{ job.job_id }}/clip/{{ c.cluster_id }}"
-               class="h-8" style="max-width:220px"></audio>
+        {#
+          手動でラベル付けしたものは、DB に保存された音声そのものを鳴らす。
+          切り出し範囲を指定した場合、ここで切り出し後の音が確認できる。
+          自動再照合で解決したものは DB にファイルを追加していない（既存話者の
+          音声を指すことになり別人の声になる）ので、元のクラスタ音声を鳴らす。
+        #}
+        {% if c.resolved_method == 'manual' and job.db_name %}
+        <div class="flex items-center gap-2">
+            <span class="text-xs text-gray-400 whitespace-nowrap">保存された音声</span>
+            <audio controls preload="none"
+                   src="/api/databases/{{ job.db_name|urlencode }}/speakers/{{ (c.resolved_name ~ '.wav')|urlencode }}/audio"
+                   class="h-8" style="max-width:220px"></audio>
+        </div>
+        {% else %}
+        <div class="flex items-center gap-2">
+            <span class="text-xs text-gray-400 whitespace-nowrap">クラスタ音声</span>
+            <audio controls preload="none" src="/unknowns/{{ job.job_id }}/clip/{{ c.cluster_id }}"
+                   class="h-8" style="max-width:220px"></audio>
+        </div>
+        {% endif %}
     </li>
     {% endfor %}
 </ul>

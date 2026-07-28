@@ -3,13 +3,29 @@
 from __future__ import annotations
 
 import csv
+import subprocess
 from pathlib import Path
+from urllib.parse import quote
 
 import pytest
 
 import src.web.jobs as jobs
+from src.common.audio import probe_duration_sec
 
 WAV_BYTES = b"RIFF----WAVEfmt "
+
+
+def _正弦波を書く(path: Path, seconds: int) -> None:
+    """ffmpeg で扱える本物の WAV を作る（切り出しの検証に使う）。"""
+    subprocess.run(
+        [
+            "ffmpeg", "-nostdin", "-loglevel", "error",
+            "-f", "lavfi", "-i", f"sine=frequency=440:duration={seconds}",
+            "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1",
+            "-y", str(path),
+        ],
+        check=True,
+    )
 
 
 def _文字起こしCSV(path: Path) -> None:
@@ -164,6 +180,20 @@ class Test未知話者のラベル付け:
         assert response.status_code == 200
         assert jobs.load_job(未解決ジョブ)["clusters"][0]["resolved"] is False
 
+    def test_ラベル付け済みの試聴はDBに保存されたファイルを指す(
+        self, client, 未解決ジョブ, 話者入りDB, 話者照合をモックにする
+    ):
+        """切り出しが効いたかを画面で確認できるようにするため（元クリップではない）。"""
+        response = client.post(
+            f"/unknowns/{未解決ジョブ}/label/0",
+            data={"speaker_name": "花子", "db_name": "テストDB"},
+        )
+
+        期待するURL = (
+            f"/api/databases/{quote('テストDB')}/speakers/{quote('花子.wav')}/audio"
+        )
+        assert 期待するURL in response.text
+
     def test_新規DBを作ってラベル付けできる(
         self,
         client,
@@ -178,3 +208,94 @@ class Test未知話者のラベル付け:
 
         assert response.status_code == 200
         assert (声紋DBルート / "新DB" / "花子.wav").is_file()
+
+
+class Test切り出し範囲の指定:
+    """フォームの clip_start / clip_end が DB へ保存する音声に効くこと。
+
+    ffmpeg を実際に呼ぶ。ここが壊れると「範囲を指定したのに全体が保存される」
+    という気づきにくい不具合になるため、本物の音声で押さえる。
+    """
+
+    @pytest.fixture
+    def 十秒のクラスタを持つジョブ(self, ジョブ保存先, 作業ディレクトリ) -> str:
+        job_id = "20260728-120000-crop00"
+        job_dir = ジョブ保存先 / job_id
+        job_dir.mkdir(parents=True)
+        _正弦波を書く(job_dir / "clip_0.wav", 10)
+
+        csv_path = 作業ディレクトリ / "transcription.csv"
+        _文字起こしCSV(csv_path)
+        jobs.save_job(
+            job_id,
+            {
+                "job_id": job_id,
+                "csv_path": str(csv_path),
+                "csv_filename": csv_path.name,
+                "srt_path": None,
+                "db_name": None,
+                "threshold": 0.5,
+                "embedding_model": "pyannote/embedding",
+                "clusters": [
+                    {
+                        "cluster_id": "0",
+                        "unknown_label": "Unknown_1",
+                        "clip_filename": "clip_0.wav",
+                        "segment_start": 0.0,
+                        "segment_end": 10.0,
+                        "distance": 1.0,
+                        "candidate_distances": [],
+                        "resolved": False,
+                        "resolved_name": None,
+                    }
+                ],
+                "created_at": "2026-07-28T12:00:00",
+            },
+        )
+        return job_id
+
+    def test_指定した範囲だけが保存される(
+        self, client, 十秒のクラスタを持つジョブ, 声紋DBルート, 話者照合をモックにする
+    ):
+        db_dir = 声紋DBルート / "テストDB"
+        db_dir.mkdir()
+
+        response = client.post(
+            f"/unknowns/{十秒のクラスタを持つジョブ}/label/0",
+            data={
+                "speaker_name": "花子",
+                "db_name": "テストDB",
+                "clip_start": "3.00",
+                "clip_end": "6.00",
+            },
+        )
+
+        assert response.status_code == 200
+        assert probe_duration_sec(db_dir / "花子.wav") == pytest.approx(3.0, abs=0.2)
+
+    def test_範囲が空欄なら全体が保存される(
+        self, client, 十秒のクラスタを持つジョブ, 声紋DBルート, 話者照合をモックにする
+    ):
+        db_dir = 声紋DBルート / "テストDB"
+        db_dir.mkdir()
+
+        client.post(
+            f"/unknowns/{十秒のクラスタを持つジョブ}/label/0",
+            data={"speaker_name": "花子", "db_name": "テストDB",
+                  "clip_start": "", "clip_end": ""},
+        )
+
+        assert probe_duration_sec(db_dir / "花子.wav") == pytest.approx(10.0, abs=0.2)
+
+    def test_終了が開始より前ならエラーになる(
+        self, client, 十秒のクラスタを持つジョブ, 声紋DBルート, 話者照合をモックにする
+    ):
+        (声紋DBルート / "テストDB").mkdir()
+
+        response = client.post(
+            f"/unknowns/{十秒のクラスタを持つジョブ}/label/0",
+            data={"speaker_name": "花子", "db_name": "テストDB",
+                  "clip_start": "6.00", "clip_end": "3.00"},
+        )
+
+        assert "終了時間は開始時間より後" in response.text

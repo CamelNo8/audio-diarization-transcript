@@ -83,6 +83,27 @@ class Test発話が検出された場合:
         assert read_rows(出力パス) == [CSV_HEADER]
 
 
+class Testハルシネーションを含む場合:
+    def test_幻聴とみなした行は書き出されない(self, プロセッサ, monkeypatch):
+        processor, 出力パス = プロセッサ
+        monkeypatch.setattr(
+            AudioProcessor,
+            "_transcribe",
+            lambda self: [
+                {"start": 0.0, "end": 1.0, "text": "こんにちは"},
+                {"start": 1.0, "end": 2.0, "text": "ご視聴ありがとうございました"},
+                {"start": 2.0, "end": 3.0, "text": "はいはいはい"},
+                {"start": 3.0, "end": 4.0, "text": "本題に入ります"},
+                {"start": 4.0, "end": 5.0, "text": "本題に入ります"},
+            ],
+        )
+
+        processor.process_and_save_to_csv()
+
+        本文 = [行[3] for 行 in read_rows(出力パス)[1:]]
+        assert 本文 == ["こんにちは", "本題に入ります"]
+
+
 class Test話者分離に失敗した場合:
     def test_CSVを作らず失敗を返す(self, プロセッサ, monkeypatch):
         processor, 出力パス = プロセッサ

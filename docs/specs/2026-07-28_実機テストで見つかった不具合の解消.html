@@ -1,0 +1,267 @@
+<meta charset="utf-8">
+<title>実機テストで見つかった不具合の解消（範囲指定 / 戻る導線 / ハルシネーション）仕様書</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+         line-height: 1.8; max-width: 1000px; margin: 0 auto; padding: 2rem 1.2rem; }
+  h1 { border-bottom: 3px solid #4a7; padding-bottom: .4rem; }
+  h2 { border-left: 6px solid #4a7; padding-left: .6rem; margin-top: 2.4rem; }
+  h3 { margin-top: 1.6rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: .94rem; }
+  th, td { border: 1px solid #8884; padding: .45rem .6rem; text-align: left; vertical-align: top; }
+  th { background: #4a71; }
+  code, pre { font-family: "SF Mono", Menlo, monospace; font-size: .88rem; }
+  pre { background: #8881; padding: .9rem; overflow-x: auto; border-radius: 6px; }
+  .status { display: inline-block; padding: .1rem .55rem; border-radius: 4px;
+            font-size: .8rem; font-weight: 700; border: 1px solid currentColor; }
+  .s-todo { color: #a60; }
+  .s-doing { color: #06a; }
+  .s-done { color: #070; }
+  .meta { background: #4a71; padding: .8rem 1rem; border-radius: 6px; }
+  .warn { border-left: 5px solid #c62; background: #c621; padding: .7rem 1rem; border-radius: 4px; }
+  .note { border-left: 5px solid #06a; background: #06a1; padding: .7rem 1rem; border-radius: 4px; }
+  ul.todo { list-style: none; padding-left: .4rem; }
+  ul.todo li { margin: .35rem 0; }
+  .phase { margin-top: 1.4rem; }
+</style>
+
+<h1>実機テストで見つかった不具合の解消 仕様書</h1>
+
+<div class="meta">
+  <strong>ステータス:</strong> <span class="status s-doing">作業中</span>（2026-07-28 承認済み）<br>
+  <strong>作成日:</strong> 2026-07-28<br>
+  <strong>対象リポジトリ:</strong> <code>audio-diarization-transcript</code>（ブランチ <code>main</code> / HEAD <code>8923d1e</code>）<br>
+  <strong>経緯:</strong> リファクタリング後の Spark 実機テストで、クライアントが3件の不具合を報告した。
+</div>
+
+<h2>1. 対象の3件と原因</h2>
+
+<table>
+  <tr><th>#</th><th>報告された症状</th><th>調査で判明した原因</th></tr>
+  <tr><td>A</td>
+      <td>ラベル付けで範囲を指定してもDBに保存される音が指定前のまま。</td>
+      <td><strong>原因は2つ。</strong>
+          <br>(A-1) 波形ドラッグが範囲選択になっていない（本命）。
+          <br>(A-2) 「ラベル付け済み」の試聴が切り出し前の音を返す（確認手段が嘘をつく）。</td></tr>
+  <tr><td>B</td>
+      <td>ラベル付け後に「トップに戻る」を押すと最初からやり直しになる。</td>
+      <td>ラベル付け画面は別タブで開かれるのに、リンクが単なる <code>&lt;a href="/"&gt;</code>。
+          そのタブで空のトップ画面を開き直してしまう。</td></tr>
+  <tr><td>C</td>
+      <td>「ご視聴ありがとうございました」「はいはいはい」等のハルシネーションが混ざる。</td>
+      <td>文字起こし結果に対するフィルタが存在しない。空文字の行を落とすだけ。</td></tr>
+</table>
+
+<h3>1-1. A の調査で確定した事実</h3>
+
+<div class="note">
+  <strong>サーバー側の切り出しは正常。</strong> 実ブラウザで開始 3.00 / 終了 6.00 を指定してラベル付けしたところ、
+  保存された <code>.wav</code> はちょうど 3.0 秒だった。ffmpeg のコマンド組み立て
+  （<code>src/common/audio.py</code> の <code>build_extract_command</code>）も、Spark の ffmpeg 6.1.1 で
+  <code>-ss 3 -to 6</code> → 3.0 秒になることを確認済み。<strong>よってサーバー側は修正不要。</strong>
+</div>
+
+<p>
+  <strong>(A-1) ドラッグが範囲選択になっていない。</strong>
+  <code>templates/partials/crop_editor_script.html</code> は <code>ws.on('decode')</code> で
+  クリップ全体（0〜全長）を覆うリージョンを1つ作るだけで、wavesurfer の
+  <code>regions.enableDragSelection()</code> を呼んでいない。そのため波形上のドラッグは
+  <strong>新規選択ではなく既存リージョンの平行移動</strong>として解釈される。
+  リージョンは既に全体を覆っているので、左方向のドラッグは端で頭打ちになり
+  値は <code>0.00</code>〜全長のまま＝切り出しなしになる。
+  一方、画面の説明文は「波形をドラッグするか数値を入力して、保存したい範囲を選択してください」
+  と書いてあり、UI と実装が食い違っている。クライアントは波形をドラッグしたと回答済み。
+</p>
+
+<p>
+  裏付け: Spark 上の <code>voice_databases/転スラ/</code> の5ファイルは、
+  対応するクラスタ音声と秒数がミリ秒まで一致していた
+  （大賢者 6.024s = <code>clip_SPEAKER_02.wav</code>、スライム 9.113s = <code>clip_SPEAKER_03.wav</code>、
+  ヴェルドラ 4.675s、三上 3.797s、田村 1.671s）。実際に一度も切り出されていない。
+</p>
+
+<p>
+  <strong>(A-2) 確認に使う試聴が元音声を指している。</strong>
+  <code>templates/partials/unknowns_list.html</code> の「ラベル付け済み」一覧にある
+  <code>&lt;audio&gt;</code> は <code>/unknowns/&lt;job&gt;/clip/&lt;cluster&gt;</code>、
+  すなわち<strong>元のクラスタ音声</strong>を指す。DB に保存された切り出し済みファイルではない。
+  切り出しが成功していてもここでは必ず「指定前の音」が鳴るため、
+  仮に A-1 を直しても<strong>これを直さないと直ったことを確認できない</strong>。
+</p>
+
+<h2>2. 方針（クライアント確認済み）</h2>
+
+<table>
+  <tr><th>論点</th><th>決定</th></tr>
+  <tr><td>ハルシネーション行の扱い</td><td><strong>行ごと削除する。</strong>削除した内容はログに残す。</td></tr>
+  <tr><td>判定条件</td><td><strong>3つとも入れる。</strong>①定型フレーズのリスト ②同一文字列の反復検出 ③直前の行と同一テキストの連続</td></tr>
+  <tr><td>「トップに戻る」</td><td><strong>タブを閉じる。</strong>別タブで開かれた場合のみ。直接URLで開いた場合は従来どおり <code>/</code> へ。</td></tr>
+</table>
+
+<h2>3. 実装内容</h2>
+
+<h3>3-A. 切り出し範囲の指定を直す</h3>
+
+<p><strong>対象:</strong> <code>templates/partials/crop_editor_script.html</code>、
+<code>templates/partials/unknowns_list.html</code></p>
+
+<ol>
+  <li><strong>ドラッグで範囲選択できるようにする。</strong>
+      <code>regions.enableDragSelection()</code> を有効にし、波形上のドラッグで新しいリージョンを作る。
+      新しいリージョンができたら古い方を消し、常に1つだけが存在するようにする
+      （<code>region-created</code> で直前のリージョンを <code>remove()</code>）。
+      <code>region-updated</code> による数値入力への反映は現状のまま使える。</li>
+  <li><strong>初期リージョンは作らない。</strong>全体を覆うリージョンがあるとドラッグ開始点が
+      必ずリージョン上になり、移動と区別できなくなるため。
+      初期状態は「選択なし＝全体を保存」とし、数値入力は空欄にする
+      （サーバー側は空欄を「全体」として扱う既存挙動と一致する）。
+      <code>ws.on('decode')</code> では <code>max</code> 属性の設定と全長の保持だけを行う。</li>
+  <li><strong>「全体に戻す」はリージョンを消して数値を空欄にする</strong>挙動に変える。</li>
+  <li><strong>数値入力からリージョンを作れるようにする。</strong>
+      リージョンが無い状態で数値が入力されたら、その範囲でリージョンを新規作成する
+      （現状は <code>if (!region) return;</code> で何もしない）。</li>
+  <li><strong>説明文を実際の操作に合わせる。</strong>
+      「波形をドラッグして範囲を選択するか、数値を入力してください。選択しなければ全体を保存します。」</li>
+</ol>
+
+<div class="note">
+  <code>crop_editor_script.html</code> は <code>/databases</code> のトリミングでも使われている
+  （<code>initCropEditor</code> をモーダルから呼ぶ）。同じ変更が両方に効く。
+  <code>/databases</code> 側のサーバー処理（<code>api_trim_speaker</code>）は空欄を「指定なし」として弾くため、
+  初期リージョンを廃止しても壊れない。
+</div>
+
+<h3>3-A-2. ラベル付け済みの試聴を、実際に保存されたファイルにする</h3>
+
+<p><strong>対象:</strong> <code>templates/partials/unknowns_list.html</code>、<code>src/web/routes/unknowns.py</code></p>
+
+<p>
+  「ラベル付け済み」一覧の <code>&lt;audio&gt;</code> の参照先を、
+  DB に保存された話者ファイル
+  <code>/api/databases/&lt;db&gt;/speakers/&lt;名前&gt;.wav/audio</code> に変える。
+  このルートは既に存在し、<code>Cache-Control: no-store</code> も付いているのでそのまま使える。
+</p>
+
+<p>
+  保存先 DB 名はラベル付け時に <code>job["db_name"]</code> へ記録されるので、テンプレートから参照できる。
+  ただし<strong>自動再照合で解決したクラスタ</strong>（<code>resolved_method == "auto"</code>）は
+  DB にファイルを追加していない。この場合は既存話者のファイルを指すことになり、
+  「そのクラスタの音」ではなくなるため、<strong>自動解決分は従来どおり元クラスタ音声を指す</strong>。
+  どちらを鳴らしているかがわかるよう、ラベルを添える（手動＝「保存された音声」／自動＝「クラスタ音声」）。
+</p>
+
+<h3>3-B. 「トップに戻る」でやり直しにならないようにする</h3>
+
+<p><strong>対象:</strong> <code>templates/unknowns.html</code></p>
+
+<p>
+  リンクにクリックハンドラを付け、<code>window.opener</code> が存在する
+  （＝ Step 1 の結果から別タブで開かれた）場合は <code>window.close()</code> でこのタブを閉じる。
+  元のタブには Step 1 の結果と Step 2 のフォームがそのまま残っているので、続きから作業できる。
+  直接URLを開いた場合は <code>window.opener</code> が無いので、従来どおり <code>/</code> へ遷移する。
+  文言も「← 閉じて元の画面に戻る」に変える。
+</p>
+
+<h3>3-C. ハルシネーション行を除去する</h3>
+
+<p><strong>対象:</strong> 新規 <code>src/transcription/hallucination.py</code>、
+<code>src/diarization/transcript.py</code>、<code>src/config.py</code></p>
+
+<p>
+  文字起こしセグメントを CSV の行に落とす <code>build_rows()</code> の中で、
+  本文が空の行を落としているのと同じ場所に判定を挟む。
+  ここを通れば CSV と、CSV から作る SRT の両方に効く。
+</p>
+
+<h4>判定 ①: 定型フレーズ</h4>
+<p>
+  正規化（前後空白の除去、記号・句読点の除去、全角記号の統一）したうえで、
+  リストのいずれかと一致する行を除去する。初期リストは Whisper 日本語の典型的な幻聴を入れる:
+</p>
+<pre>ご視聴ありがとうございました
+ご清聴ありがとうございました
+ご視聴ありがとうございます
+最後までご視聴いただきありがとうございます
+チャンネル登録をお願いします
+チャンネル登録よろしくお願いします
+おわり
+END</pre>
+<p>
+  リストは <code>src/config.py</code> に定数として置き、
+  <strong>環境変数 <code>HALLUCINATION_PHRASES_FILE</code> で外部ファイルを指定すると追記できる</strong>ようにする
+  （1行1フレーズ。素材ごとに増やせるようにするため。Spark 側でコードを触らず調整できる）。
+</p>
+
+<h4>判定 ②: 同一文字列の反復</h4>
+<p>
+  「はいはいはい」「あーあーあー」のように、同じ短い単位が繰り返されるだけの行を除去する。
+  行を最短の繰り返し単位に分解し、<strong>単位が 4 文字以下かつ 3 回以上</strong>繰り返されて
+  行全体を構成している場合に幻聴とみなす。
+  「そうそう」（2回）や、意味のある長い文の繰り返しは残す。
+</p>
+
+<h4>判定 ③: 直前の行と同一のテキストの連続</h4>
+<p>
+  正規化後のテキストが直前の採用行と同一であるものを除去する。
+  Whisper のループ暴走で同じ文が延々続く場合に効く。
+  <strong>最初の1回は残す</strong>（本当に同じ相槌を2回言った場合との区別がつかないため、
+  連続 2 回目以降を落とす）。
+</p>
+
+<div class="warn">
+  <strong>誤判定のリスクと歯止め。</strong>
+  「はいはいはい」は実際の相槌としてもあり得る。除去した行は必ず
+  <code>logger.info</code> で「どの行を、どの判定で落としたか」を出す。
+  <code>spark-logs.sh</code> に流れるので、後から誤判定を確認できる。
+  リストが素材に合わなければ環境変数で調整する。
+</div>
+
+<h2>4. テスト方針</h2>
+
+<p>TDD に則り、各項目は先にテストを書いてから実装する。</p>
+
+<table>
+  <tr><th>対象</th><th>テスト</th><th>ファイル</th></tr>
+  <tr><td>C ①定型フレーズ</td><td>リスト内のフレーズが、句読点や記号付きでも除去される／通常の文は残る</td>
+      <td>新規 <code>tests/test_hallucination.py</code></td></tr>
+  <tr><td>C ②反復</td><td>「はいはいはい」が除去される／「そうそう」と通常文は残る</td><td>同上</td></tr>
+  <tr><td>C ③連続重複</td><td>同一テキストの連続で2回目以降が落ちる／1回目は残る</td><td>同上</td></tr>
+  <tr><td>C 統合</td><td><code>build_rows()</code> が幻聴行を含まない行を返す</td>
+      <td><code>tests/test_diarization_processor.py</code></td></tr>
+  <tr><td>A 切り出し</td><td><code>clip_start</code>/<code>clip_end</code> を送るとDBに保存される音声が指定長になる<br>
+      （<strong>現状これを守るテストが無い</strong>。回帰防止として追加する）</td>
+      <td><code>tests/test_web_unknowns.py</code></td></tr>
+  <tr><td>A-2 試聴の参照先</td><td>手動解決したクラスタの試聴URLがDBの話者ファイルを指す</td>
+      <td><code>tests/test_web_unknowns.py</code></td></tr>
+</table>
+
+<div class="note">
+  JS（ドラッグ選択・タブを閉じる）は自動テストの対象外。
+  ローカルで実際にブラウザを動かして確認し、その結果を報告する。
+</div>
+
+<h2>5. ToDo</h2>
+
+<ul class="todo">
+  <li><span class="status s-done">完了</span> <strong>C-1</strong> <code>src/transcription/hallucination.py</code> のテストを書く（3判定）</li>
+  <li><span class="status s-done">完了</span> <strong>C-2</strong> <code>hallucination.py</code> を実装し、フレーズリストを <code>src/config.py</code> へ。環境変数での追記に対応</li>
+  <li><span class="status s-done">完了</span> <strong>C-3</strong> <code>build_rows()</code> に組み込み、除去した行をログに出す。統合テストを追加</li>
+  <li><span class="status s-done">完了</span> <strong>A-1</strong> 切り出し指定の回帰テストを <code>tests/test_web_unknowns.py</code> に追加</li>
+  <li><span class="status s-done">完了</span> <strong>A-2</strong> <code>crop_editor_script.html</code> をドラッグ選択方式に変更（初期リージョン廃止・数値からの生成・全体に戻す）</li>
+  <li><span class="status s-done">完了</span> <strong>A-3</strong> 説明文を実際の操作に合わせて修正</li>
+  <li><span class="status s-done">完了</span> <strong>A-4</strong> ラベル付け済みの試聴を保存済みファイルに向ける（自動解決分は従来どおり＋区別のラベル）。テストを追加</li>
+  <li><span class="status s-done">完了</span> <strong>B-1</strong> 「トップに戻る」をタブを閉じる挙動に変更</li>
+  <li><span class="status s-done">完了</span> <strong>V-1</strong> ローカルのブラウザで A・B を実際に操作して確認</li>
+  <li><span class="status s-done">完了</span> <strong>V-2</strong> 全テスト実行（458件＋追加分）・ruff</li>
+  <li><span class="status s-doing">作業中</span> <strong>V-3</strong> commit / push、Spark 側の反映手順を提示</li>
+</ul>
+
+<h2>6. 触らないもの</h2>
+
+<ul>
+  <li><code>src/common/audio.py</code> の ffmpeg 処理（検証の結果、正常）</li>
+  <li><code>src/web/routes/unknowns.py</code> の切り出しロジック <code>_prepare_clip()</code>（同上）</li>
+  <li>文字起こしバックエンド（<code>no_speech_prob</code> 等の品質指標を通す配管は今回入れない。
+      テキストベースの判定で足りるかを先に実機で見る）</li>
+  <li>Step 2 のマッチング・Step 3 の字幕生成</li>
+</ul>
