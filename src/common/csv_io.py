@@ -79,9 +79,14 @@ def write_dict_rows(
 
     Raises:
         OSError: 書き込みに失敗した場合。
+
+    Note:
+        親ディレクトリが無ければ作る。実験結果の集約先（``docs/experiment/`` 等）を
+        毎回手で用意しなくても済むようにするため。
     """
     if not rows:
         return
+    Path(csv_path).parent.mkdir(parents=True, exist_ok=True)
     should_write_header = not (should_append and Path(csv_path).exists())
     mode = "a" if should_append else "w"
     with open(csv_path, mode, encoding=CSV_ENCODING, newline="") as f:

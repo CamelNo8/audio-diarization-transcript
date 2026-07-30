@@ -11,6 +11,7 @@ import pytest
 from src.evaluation.clip_selector import (
     SelectionOptions,
     enumerate_windows,
+    main,
     select_clip_pair,
     shift_entries,
     write_srt,
@@ -179,3 +180,26 @@ class Test切り出した字幕の書き出し:
         assert reloaded[0].start == pytest.approx(0.0)
         assert reloaded[0].speakers == shifted[0].speakers
         assert reloaded[-1].end == pytest.approx(300.0)
+
+
+class TestCLIの出力先:
+    """出力先ディレクトリが無いだけで、選定結果を丸ごと失ってはいけない。"""
+
+    def test_出力先ディレクトリが無くてもCSVと正解SRTが書き出される(self, tmp_path):
+        srt = _落ち着いた区間と騒がしい区間(tmp_path)
+        csv_path = tmp_path / "まだ無い" / "clips.csv"
+        srt_dir = tmp_path / "これも無い" / "gt"
+
+        code = main(
+            [
+                "--srt", str(srt),
+                "--name", "テスト番組",
+                "--out-csv", str(csv_path), "--append",
+                "--out-srt-dir", str(srt_dir),
+            ]
+        )
+
+        assert code == 0
+        assert csv_path.is_file()
+        assert (srt_dir / "テスト番組_hard.srt").is_file()
+        assert (srt_dir / "テスト番組_calm.srt").is_file()

@@ -427,7 +427,17 @@ def _warn_if_no_overlap_signal(windows: list[ClipWindow]) -> None:
 def _write_outputs(
     args: argparse.Namespace, clips: dict[str, ClipWindow], name: str
 ) -> None:
-    """CSV と切り出しSRTを書き出す。"""
+    """切り出しSRTと CSV を書き出す。
+
+    SRT を先に書く。CSV は説明変数なので後から作り直せるが、切り出した正解SRT は
+    以降の評価の土台になるため、片方が失敗してももう片方を落とさない順序にする。
+    """
+    if args.out_srt_dir:
+        for kind, window in clips.items():
+            output = Path(args.out_srt_dir) / f"{name}_{kind}.srt"
+            write_srt(shift_entries(window.entries, offset=window.start), output)
+            print(f"正解SRTを切り出しました: {output}")
+
     if args.out_csv:
         rows = [
             {
@@ -443,12 +453,6 @@ def _write_outputs(
         ]
         write_dict_rows(args.out_csv, rows, should_append=args.append)
         print(f"説明変数を書き出しました: {args.out_csv}")
-
-    if args.out_srt_dir:
-        for kind, window in clips.items():
-            output = Path(args.out_srt_dir) / f"{name}_{kind}.srt"
-            write_srt(shift_entries(window.entries, offset=window.start), output)
-            print(f"正解SRTを切り出しました: {output}")
 
 
 def _print_ffmpeg_commands(
