@@ -398,7 +398,10 @@ def _print_window(kind: str, window: ClipWindow, score: float) -> None:
     end = seconds_to_time_str(window.end)
     print(f"[{kind}] {start} --> {end}")
     print(f"  実長 {window.end - window.start:.1f} 秒 / 難易度スコア {score:+.3f}")
-    print(f"  話者数 {variables.speaker_count}（{' '.join(variables.speakers)}）")
+    print(f"  登場人数 {variables.speaker_count} 名（発話数の多い順）")
+    print("    " + " / ".join(
+        f"{speaker} {count}" for speaker, count in variables.utterance_counts
+    ))
     print(
         f"  発話数 {variables.utterance_count} / "
         f"話者交替 {variables.speaker_change_count} 回"

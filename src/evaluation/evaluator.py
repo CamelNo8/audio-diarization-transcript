@@ -118,6 +118,8 @@ class EvaluationResult:
     false_negative_count: int
     false_positive_count: int
     correct_unknown_count: int
+    registered_speaker_count: int = 0
+    unregistered_speaker_count: int = 0
     confusion: dict[tuple[str, str], int] = field(default_factory=dict)
 
     @property
@@ -271,7 +273,22 @@ def evaluate(
             )
         )
 
-    return _summarize(tuple(matched), (unmatched_ground_truth, unmatched_app), options)
+    return _summarize(
+        tuple(matched),
+        (unmatched_ground_truth, unmatched_app),
+        options,
+        _appearing_speakers(ground_truth),
+    )
+
+
+def _appearing_speakers(entries: list[SubtitleEntry]) -> tuple[str, ...]:
+    """区間に登場した話者を出現順・重複なしで集める。"""
+    speakers: list[str] = []
+    for entry in entries:
+        for speaker in entry.speakers:
+            if speaker not in speakers:
+                speakers.append(speaker)
+    return tuple(speakers)
 
 
 def _build_matched(
@@ -314,8 +331,13 @@ def _summarize(
     matched: tuple[MatchedUtterance, ...],
     unmatched_counts: tuple[int, int],
     options: EvaluationOptions,
+    appearing_speakers: tuple[str, ...],
 ) -> EvaluationResult:
-    """突き合わせ結果を集計する。"""
+    """突き合わせ結果を集計する。
+
+    ``appearing_speakers`` は正解字幕に登場した話者。クリップ間で登録話者数は
+    揃えられないため、登場人数を登録済み／未登録に分けて記録する（予稿 4.3）。
+    """
     errors = [utterance.in_point_error for utterance in matched]
     judgements = Counter(utterance.judgement for utterance in matched)
     correct_counts = {
@@ -344,6 +366,12 @@ def _summarize(
         false_negative_count=judgements[JUDGEMENT_FALSE_NEGATIVE],
         false_positive_count=judgements[JUDGEMENT_FALSE_POSITIVE],
         correct_unknown_count=judgements[JUDGEMENT_CORRECT_UNKNOWN],
+        registered_speaker_count=sum(
+            1 for speaker in appearing_speakers if options.is_registered(speaker)
+        ),
+        unregistered_speaker_count=sum(
+            1 for speaker in appearing_speakers if not options.is_registered(speaker)
+        ),
         confusion=dict(confusion),
     )
 
@@ -523,6 +551,8 @@ def _build_summary_row(
             "false_negative_count": result.false_negative_count,
             "false_positive_count": result.false_positive_count,
             "correct_unknown_count": result.correct_unknown_count,
+            "registered_speaker_count": result.registered_speaker_count,
+            "unregistered_speaker_count": result.unregistered_speaker_count,
             **variables.as_row(),
             "overlap_time_ratio": _overlap_time_ratio(rttm),
         }

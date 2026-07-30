@@ -183,7 +183,13 @@ class SubtitleEntry:
 
 @dataclass(frozen=True)
 class ClipVariables:
-    """クリップ1本の説明変数（予稿 4.3 の記録項目）。"""
+    """クリップ1本の説明変数（予稿 4.3 の記録項目）。
+
+    ``speaker_count`` は**その区間に登場した人数**。クリップ間で人数を揃えるのは
+    番組の性質上できないため（対談番組は常に2人、バラエティは最小でも8人など）、
+    揃えずに説明変数として記録する方針を採る。誰が何回喋ったかは
+    ``utterance_counts`` に残す。
+    """
 
     duration_sec: float
     speaker_count: int
@@ -194,6 +200,7 @@ class ClipVariables:
     overlap_entry_ratio: float
     speech_time_ratio: float
     speakers: tuple[str, ...] = field(default=())
+    utterance_counts: tuple[tuple[str, int], ...] = field(default=())
 
     def as_row(self) -> dict[str, object]:
         """CSV へ書き出すための1行分の辞書を返す。"""
@@ -206,7 +213,9 @@ class ClipVariables:
             "overlap_entry_count": self.overlap_entry_count,
             "overlap_entry_ratio": round(self.overlap_entry_ratio, 4),
             "speech_time_ratio": round(self.speech_time_ratio, 4),
-            "speakers": " ".join(self.speakers),
+            "speaker_utterances": " ".join(
+                f"{speaker}:{count}" for speaker, count in self.utterance_counts
+            ),
         }
 
 
@@ -429,7 +438,8 @@ def compute_variables(
         算出した説明変数。発話が無い場合も 0 埋めした値を返す（0 除算しない）。
     """
     speech = [entry for entry in entries if entry.is_speech]
-    speakers = _collect_speakers(speech)
+    utterance_counts = _count_utterances_by_speaker(speech)
+    speakers = [speaker for speaker, _ in utterance_counts]
     overlap_count = sum(1 for entry in speech if entry.has_overlap)
     change_count = _count_speaker_changes(speech)
     speech_time = sum(entry.duration for entry in speech)
@@ -444,17 +454,23 @@ def compute_variables(
         overlap_entry_ratio=_ratio(overlap_count, len(speech)),
         speech_time_ratio=_ratio(speech_time, duration_sec),
         speakers=tuple(speakers),
+        utterance_counts=utterance_counts,
     )
 
 
-def _collect_speakers(entries: list[SubtitleEntry]) -> list[str]:
-    """登場する話者を出現順・重複なしで集める。"""
-    speakers: list[str] = []
+def _count_utterances_by_speaker(
+    entries: list[SubtitleEntry],
+) -> tuple[tuple[str, int], ...]:
+    """話者ごとの発話数を、多い順（同数なら出現順）に数える。
+
+    1エントリに2人以上いる場合は、その全員に1件ずつ数える。
+    """
+    counts: dict[str, int] = {}
     for entry in entries:
         for speaker in entry.speakers:
-            if speaker not in speakers:
-                speakers.append(speaker)
-    return speakers
+            counts[speaker] = counts.get(speaker, 0) + 1
+    ordered = sorted(counts.items(), key=lambda item: -item[1])
+    return tuple(ordered)
 
 
 def _count_speaker_changes(entries: list[SubtitleEntry]) -> int:

@@ -257,6 +257,22 @@ class Test説明変数:
         # 発話4件×10秒 ÷ 60秒
         assert variables.speech_time_ratio == pytest.approx(40.0 / 60.0)
 
+    def test_話者ごとの発話数が発話の多い順に記録される(self, tmp_path):
+        """登場人数を揃えず記録する方針のため、誰が何回喋ったかを残す。"""
+        entries = parse_srt(self._字幕を作る(tmp_path))
+
+        variables = compute_variables(entries, duration_sec=60.0)
+
+        # 三上は1・2・3番、大賢者は3・5番に登場する
+        assert variables.utterance_counts == (("三上", 3), ("大賢者", 2))
+
+    def test_話者ごとの発話数がCSVの1列に収まる(self, tmp_path):
+        entries = parse_srt(self._字幕を作る(tmp_path))
+
+        row = compute_variables(entries, duration_sec=60.0).as_row()
+
+        assert row["speaker_utterances"] == "三上:3 大賢者:2"
+
     def test_発話が無ければ割合は0になる(self):
         variables = compute_variables([], duration_sec=60.0)
 

@@ -241,6 +241,40 @@ class Test話者の評価:
         assert result.confusion[("三上", "大賢者")] == 1
 
 
+class Test登場人数の記録:
+    """クリップ間で登録話者数は揃えないので、登場人数を説明変数として記録する。"""
+
+    def _2人が登場する評価(self, tmp_path, registered):
+        ground_truth = parse_srt(
+            _SRTを書く(
+                tmp_path / "gt.srt",
+                [(0.0, 2.0, "（三上）あのさ"), (2.0, 4.0, "（群衆）わあ")],
+            )
+        )
+        app = parse_srt(
+            _SRTを書く(
+                tmp_path / "app.srt",
+                [(0.0, 2.0, "（三上）あのさ"), (2.0, 4.0, "（Unknown_01）わあ")],
+            )
+        )
+        return evaluate(
+            ground_truth, app, EvaluationOptions(registered_speakers=registered)
+        )
+
+    def test_登場した話者が登録済みと未登録に分けて数えられる(self, tmp_path):
+        result = self._2人が登場する評価(tmp_path, ("三上", "大賢者"))
+
+        # 大賢者は登録済みだがこの区間には登場しないので数えない
+        assert result.registered_speaker_count == 1
+        assert result.unregistered_speaker_count == 1
+
+    def test_登録話者を渡さない場合は全員登録済みとして数える(self, tmp_path):
+        result = self._2人が登場する評価(tmp_path, ())
+
+        assert result.registered_speaker_count == 2
+        assert result.unregistered_speaker_count == 0
+
+
 class Test対応付かなかった行:
     """evaluate — 対応が取れなかった行は評価対象から外し、件数を報告する。"""
 
