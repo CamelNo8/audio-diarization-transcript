@@ -303,19 +303,33 @@ dialogue,話者B,お疲れ様です
 各動画から「重なり・話者交替が多い区間（hard）」と「落ち着いた区間（calm）」を、**発話境界に合わせて**自動で選びます。入力は**正解字幕SRTだけ**です（声紋DBは見ません）。
 
 ```bash
-uv run python -m src.evaluation.clip_selector --srt "字幕/転スラ.srt" --video 転スラ1話.mp4 --target-speakers 5 --out-csv docs/experiment/clips.csv --append --out-srt-dir docs/experiment/gt
+uv run python -m src.evaluation.clip_selector --srt "字幕/転スラ.srt" --video 転スラ1話.mp4 --out-csv docs/experiment/clips.csv --append --out-srt-dir docs/experiment/gt
 ```
 
 - 話者は `（話者名）` からのみ拾い、`[…]` と `（軽快なBGM）` のような効果音・音楽は除外します。判定結果は毎回一覧表示されるので、誤りは `--speaker` / `--non-speech`（どちらも完全一致）で上書きしてください。
-- `--target-speakers N` を付けると、話者数が N から離れた区間にペナルティをかけます（クリップ間で登録話者数を揃えるため）。
+- `--target-speakers N` を付けると、話者数が N から離れた区間にペナルティをかけます。ただし**既定では使わないことを推奨します**（後述）。
 - `--out-srt-dir` には、**先頭を 0 秒に振り直した正解SRT**が `<名前>_hard.srt` / `<名前>_calm.srt` として書き出されます。そのまま②の `--gt` に渡せます。
 - 動画・音声の切り出しは行いません。ffmpeg コマンドを表示するだけなので、確認してから実行してください。
 - 動画が10分程度しかないと「重ならない2本が取れない」ことがあります。その場合は `--length 290 --tolerance 30` のように短く・緩めてください。
 
+#### 登録話者数を揃える基準（`--target-speakers` を使わない理由）
+
+納品字幕9本で全探索した結果、**`--target-speakers` は話者数を揃えられないのに、hard と calm の難易度差だけを削ることが分かりました**（ペナルティなしで hard−calm の交替率差が +4.28 回/分、`--speaker-penalty 2.0` では +3.01 まで低下し、1番組では逆転）。話者数は「PIVOT は全区間2人・しくじり先生AIは最小でも8人」のように番組の性質でほぼ決まっており、区間の選び方では動かせないためです。
+
+そこで**揃えるのは声紋DBの登録段階で行います。** 基準は次のとおり（予稿 4.2 の「名前を持たない背景キャラクタは登録しない」と整合します）。
+
+> そのクリップの正解字幕で**発話が3件以上ある個人名の話者、発話数上位5名まで**を登録する。
+
+- 集団・匿名ラベル（一同 / スタッフ / 生徒 / ナレーション / 捜査員 / 番組内・女性 …）は登録しない。生ラベル数が 2〜14 人に散る原因はほぼこれ。
+- 発話3件未満の一言キャラも登録しない（未登録話者として `Unknown_NN` 判定を受けるのが正しい扱い）。
+- 上限5名はクリップ間の比較可能性のため。
+
+この基準で10番組×2クリップの登録話者数は **2〜5名**（PIVOT の2名以外は3〜5名）に収まります。hard と calm で登録者が違うので、声紋DBは `voice_databases/転スラ_hard/` のようにクリップごとに分けてください。
+
 ### ② アプリ生成字幕を正解字幕と突き合わせて評価する
 
 ```bash
-uv run python -m src.evaluation.evaluator --gt docs/experiment/gt/転スラ_hard.srt --app temp/subtitles.srt --voice-db voice_databases/転スラ --rttm temp/transcription.rttm --tolerance 0.3 0.5 1.0 --out-csv docs/experiment/results.csv --append --out-detail docs/experiment/転スラ_hard_detail.csv
+uv run python -m src.evaluation.evaluator --gt docs/experiment/gt/転スラ_hard.srt --app temp/subtitles.srt --voice-db voice_databases/転スラ_hard --rttm temp/転スラ_hard.rttm --tolerance 0.3 0.5 1.0 --out-csv docs/experiment/results.csv --append --out-detail docs/experiment/転スラ_hard_detail.csv
 ```
 
 - 対応付けは**本文テキスト**で行います。アプリ生成字幕は話者が変わったときだけ話者名を前置するため、剥がした後に直前の話者を引き継いで補完します。`(話者)本文`（最終字幕）と `[話者] 本文`（仮字幕）の両形式に対応します。
@@ -326,7 +340,7 @@ uv run python -m src.evaluation.evaluator --gt docs/experiment/gt/転スラ_hard
 
 ### 話者分離結果（RTTM）
 
-`overlap_time_ratio` の材料として、文字起こしの実行時に話者分離の結果を RTTM でも保存します（出力CSVと同じ場所に `<CSV名>.rttm`）。文字起こしCSVは「1区間に話者1人」なので同時刻の重なりが残らないためです。保存に失敗しても字幕生成は続行します。
+`overlap_time_ratio` の材料として、文字起こしの実行時に話者分離の結果を RTTM でも保存します（出力CSVと同じ場所に `<CSV名>.rttm`）。**Web UI の Step 1 では出力ファイル名をクリップ名にしておいてください**（既定の `transcription.srt` のままだと20本が互いに上書きします）。`転スラ_hard.srt` と入れると `temp/転スラ_hard.csv` と `temp/転スラ_hard.rttm` が残ります。文字起こしCSVは「1区間に話者1人」なので同時刻の重なりが残らないためです。保存に失敗しても字幕生成は続行します。
 
 ---
 
