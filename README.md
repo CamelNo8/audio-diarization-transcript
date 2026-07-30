@@ -294,6 +294,42 @@ dialogue,話者B,お疲れ様です
 
 ---
 
+## 実験用ツール（クリップ選定と評価）
+
+研究の評価実験（予稿 4.3 / 4.5）を回すための CLI です。**アプリ本体の処理系ではありません。**
+
+### ① 正解字幕から5分クリップ2本を選ぶ
+
+各動画から「重なり・話者交替が多い区間（hard）」と「落ち着いた区間（calm）」を、**発話境界に合わせて**自動で選びます。入力は**正解字幕SRTだけ**です（声紋DBは見ません）。
+
+```bash
+uv run python -m src.evaluation.clip_selector --srt "字幕/転スラ.srt" --video 転スラ1話.mp4 --target-speakers 5 --out-csv docs/experiment/clips.csv --append --out-srt-dir docs/experiment/gt
+```
+
+- 話者は `（話者名）` からのみ拾い、`[…]` と `（軽快なBGM）` のような効果音・音楽は除外します。判定結果は毎回一覧表示されるので、誤りは `--speaker` / `--non-speech`（どちらも完全一致）で上書きしてください。
+- `--target-speakers N` を付けると、話者数が N から離れた区間にペナルティをかけます（クリップ間で登録話者数を揃えるため）。
+- `--out-srt-dir` には、**先頭を 0 秒に振り直した正解SRT**が `<名前>_hard.srt` / `<名前>_calm.srt` として書き出されます。そのまま②の `--gt` に渡せます。
+- 動画・音声の切り出しは行いません。ffmpeg コマンドを表示するだけなので、確認してから実行してください。
+- 動画が10分程度しかないと「重ならない2本が取れない」ことがあります。その場合は `--length 290 --tolerance 30` のように短く・緩めてください。
+
+### ② アプリ生成字幕を正解字幕と突き合わせて評価する
+
+```bash
+uv run python -m src.evaluation.evaluator --gt docs/experiment/gt/転スラ_hard.srt --app temp/subtitles.srt --voice-db voice_databases/転スラ --rttm temp/transcription.rttm --tolerance 0.3 0.5 1.0 --out-csv docs/experiment/results.csv --append --out-detail docs/experiment/転スラ_hard_detail.csv
+```
+
+- 対応付けは**本文テキスト**で行います。アプリ生成字幕は話者が変わったときだけ話者名を前置するため、剥がした後に直前の話者を引き継いで補完します。`(話者)本文`（最終字幕）と `[話者] 本文`（仮字幕）の両形式に対応します。
+- in点は `--tolerance` の**閾値ごとに**正解率を出します（許容ずれを事前の試行で決めるため）。
+- 話者の誤りは false negative（登録話者なのに `Unknown_NN`／空欄）と false positive（別人の名前を付けた）に分けて数えます。登録話者の判定には `--voice-db`（`*.wav` のファイル名。`田村_叫び声.wav` は `田村` に寄せる）または `--speakers` を使います。
+- `--rttm` を渡すと `overlap_time_ratio`（2人以上が同時に喋っている時間の割合）も出ます。これは**話者分離の出力**なので、正解字幕由来の `overlap_entry_ratio` と並べて読んでください（値が大きく食い違うクリップは、重なりの見落としが起きた候補です）。
+- `--out-detail` は1行1発話の突き合わせ結果（in点差・正解話者・アプリ話者・誤りの種別）、`--out-confusion` は「正解話者 × アプリ話者」のクロス表です。
+
+### 話者分離結果（RTTM）
+
+`overlap_time_ratio` の材料として、文字起こしの実行時に話者分離の結果を RTTM でも保存します（出力CSVと同じ場所に `<CSV名>.rttm`）。文字起こしCSVは「1区間に話者1人」なので同時刻の重なりが残らないためです。保存に失敗しても字幕生成は続行します。
+
+---
+
 ## プロジェクト構成
 
 エントリポイントはルートに置き、実体は `src/` 配下に機能ごとのパッケージとして持ちます。
@@ -337,6 +373,10 @@ audio-diarization-transcript/
 │   │   ├── report.py           #   マッチ結果の CSV 出力・集計表示
 │   │   ├── matcher.py          #   マッチングの入口（別プロセスで実行される）
 │   │   └── exporter.py         #   対応表CSV → 字幕SRT
+│   ├── evaluation/             # 実験用（クリップ選定と評価。アプリ本体ではない）
+│   │   ├── srt_stats.py        #   正解字幕SRTの解析・説明変数・RTTMの重なり時間
+│   │   ├── clip_selector.py    #   正解字幕から5分クリップ2本（hard / calm）を選ぶ
+│   │   └── evaluator.py        #   in点・話者の評価と誤りの分類（FN / FP）
 │   ├── voice_db/registry.py    # 声紋データベース（作成・話者の追加/削除/改名）
 │   ├── web/                    # FastAPI + htmx の Web アプリ層
 │   │   ├── application.py      #   ルータ登録（create_app）

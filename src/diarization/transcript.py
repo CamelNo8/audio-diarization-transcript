@@ -7,6 +7,7 @@ Whisper が返すセグメントと、話者分離が返すクラスタは境界
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Dict, List, Optional
 
 from pyannote.core import Segment
@@ -47,6 +48,35 @@ def build_rows(
         if row is not None:
             rows.append(row)
     return rows
+
+
+def write_rttm(diarization, assignments: ClusterAssignments, path: Path) -> None:
+    """話者分離の結果を RTTM として書き出す。
+
+    文字起こし CSV は「Whisper の1区間に話者を1人だけ」割り当てた表なので、
+    同時刻に複数話者が居るという情報が残らない。実験の説明変数
+    （``overlap_time_ratio``）を出すために、分離結果そのものを保存する。
+
+    話者名はクラスタIDではなく**照合後の話者名**を入れる（RTTM 単体で読めるように）。
+
+    Args:
+        diarization: 話者分離の結果（``Annotation``）。
+        assignments: クラスタごとの照合結果。
+        path: 出力先。親ディレクトリが無ければ作る。
+
+    Raises:
+        OSError: 書き込みに失敗した場合。
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    uri = path.stem
+    lines = []
+    for segment, _, cluster_id in diarization.itertracks(yield_label=True):
+        speaker = assignments.speaker_mapping.get(cluster_id, cluster_id)
+        lines.append(
+            f"SPEAKER {uri} 1 {segment.start:.3f} {segment.duration:.3f} "
+            f"<NA> <NA> {speaker} <NA> <NA>"
+        )
+    path.write_text("\n".join(lines) + "\n" if lines else "", encoding="utf-8")
 
 
 def _build_row(

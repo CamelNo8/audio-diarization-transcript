@@ -1,0 +1,345 @@
+<meta charset="utf-8">
+<title>実験用クリップ選定と評価の自動化 仕様書</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+         line-height: 1.8; max-width: 1000px; margin: 0 auto; padding: 2rem 1.2rem; }
+  h1 { border-bottom: 3px solid #4a7; padding-bottom: .4rem; }
+  h2 { border-left: 6px solid #4a7; padding-left: .6rem; margin-top: 2.4rem; }
+  h3 { margin-top: 1.6rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: .94rem; }
+  th, td { border: 1px solid #8884; padding: .45rem .6rem; text-align: left; vertical-align: top; }
+  th { background: #4a71; }
+  code, pre { font-family: "SF Mono", Menlo, monospace; font-size: .88rem; }
+  pre { background: #8881; padding: .9rem; overflow-x: auto; border-radius: 6px; }
+  .status { display: inline-block; padding: .1rem .55rem; border-radius: 4px;
+            font-size: .8rem; font-weight: 700; border: 1px solid currentColor; }
+  .s-todo { color: #a60; }
+  .s-doing { color: #06a; }
+  .s-done { color: #070; }
+  .meta { background: #4a71; padding: .8rem 1rem; border-radius: 6px; }
+  .warn { border-left: 5px solid #c62; background: #c621; padding: .7rem 1rem; border-radius: 4px; }
+  .note { border-left: 5px solid #06a; background: #06a1; padding: .7rem 1rem; border-radius: 4px; }
+  ul.todo { list-style: none; padding-left: .4rem; }
+  ul.todo li { margin: .35rem 0; }
+</style>
+
+<h1>実験用クリップ選定と評価の自動化 仕様書</h1>
+
+<div class="meta">
+  <strong>ステータス:</strong> <span class="status s-done">完了</span>（2026-07-30 / アーカイブ済み）<br>
+  <strong>作成日:</strong> 2026-07-30<br>
+  <strong>対象リポジトリ:</strong> <code>audio-diarization-transcript</code>（ブランチ <code>main</code> / HEAD <code>aea8df9</code>）<br>
+  <strong>経緯:</strong> 中間報告予稿 v3 の「4.3 データ設計」「4.5 正解データと評価」を人力でやるのが現実的でないため、
+  ①クリップ区間の選定 ②説明変数と評価指標の算出 の2つを自動化する。<br>
+  <strong>クライアント指示:</strong> コーディング規約の文字数制限は無視してよい。ただし<strong>自動化に必要な最低限の機能だけ</strong>実装する。
+</div>
+
+<h2>1. 前提として確認した事実</h2>
+
+<p>正解字幕（<code>~/Desktop/字幕（ココナラで依頼したもの）</code> の9本）を解析して、次を確認した。</p>
+
+<table>
+  <tr><th>項目</th><th>実測</th><th>設計への影響</th></tr>
+  <tr><td>話者表記</td>
+      <td>本文先頭の <code>（話者名）</code>。1エントリに複数個入ることがある。効果音・音楽は <code>[荘厳な音楽]</code> のように <code>[]</code>、または <code>（軽快なBGM）</code>。</td>
+      <td><strong>抽出するのは <code>（）</code> だけ</strong>（<code>[]</code> は常に非発話なので最初から見ない）。<code>（）</code> の中の効果音・音楽ラベルはキーワードで除外する。</td></tr>
+  <tr><td>時間の重なり</td>
+      <td><strong>9本すべてで重複区間ゼロ</strong>（次エントリの in 点が前エントリの out 点以降）。</td>
+      <td class="warn">正解字幕から「重なり時間の割合」を測ることは<strong>できない</strong>。自動化①は複数話者エントリ率で代替し、自動化②では pyannote の出力から時間ベースで測る。</td></tr>
+  <tr><td>1エントリ内の複数話者</td>
+      <td><strong>「別人が2人以上」で数えると</strong> ANIMALS 25/218件(11.5%)、しくじり先生AI 22/276件(8.0%)、コンビニ店長 14/204件(6.9%)、
+          しくじり先生winny 10/350件(2.9%)、PIVOT 2/387件(0.5%)、転スラ 1/206件(0.5%)、ミュトス 0/328件(0.0%)。
+          バラエティ・トークが高くアニメ・ドラマが低いという、予稿 3.3 の仮説と整合する並びになる。</td>
+      <td>自動化①（クリップ選定）における重なりの唯一の判定材料。<strong><code>overlap_entry_ratio</code>＝別人の話者ラベルを2つ以上含むエントリの割合</strong>と定義する。</td></tr>
+  <tr><td>クリップ長</td>
+      <td>納品字幕は 610〜923 秒（≒10〜15分）。5分クリップ2本を切り出す余地はある。</td>
+      <td>窓長 300 秒。ただし2窓が重ならないことを保証する。</td></tr>
+</table>
+
+<div class="note">
+  <strong>「重なり率」は予稿でも「おおよその割合」と書かれている。</strong>
+  自動化①の定義（複数話者ラベルを含むエントリ率）はその「おおよその割合」の運用的な定義として妥当だが、
+  ミュトスのように<strong>納品者が重なりを字幕に落とさなかった番組では 0 になる</strong>。
+  この限界は仕様として明記し、レポートにも根拠件数（<code>overlap_entry_count</code>）を併記する。
+  0 になった番組では、実質「話者交替回数」だけで難易度が決まることを標準出力で警告する。
+</div>
+
+<div class="warn">
+  <strong>初版の数値（コンビニ店長 130/219件など）は誤りだったので訂正した。</strong>
+  納品字幕は<strong>複数行のエントリでは各行に同じ話者名を前置する</strong>
+  （<code>（佐藤）ありがたいことに</code> / <code>（佐藤）5回目になりました</code>）。
+  ラベルの個数で数えると、この繰り返しを重なりとして数えてしまう。
+  <strong>重なりは「別人が2人以上いるエントリ」で数える</strong>のが正しく、そうすると割合は 0.0〜11.5% になる。
+  実装ではこれを <code>tests/test_srt_stats.py</code> の
+  <code>test_同じ話者が各行に繰り返されても話者は1人と数える</code> で固定した。
+</div>
+
+<h3>1-1. 重なり率は2種類あり、混ぜてはいけない</h3>
+
+<p>クライアント指摘のとおり、<strong>時間ベースの重なりは pyannote の出力から取れる</strong>。ただし正解字幕由来のものとは別物なので、変数名を分ける。</p>
+
+<table>
+  <tr><th>変数</th><th>出どころ</th><th>定義</th><th>使う場所</th></tr>
+  <tr><td><code>overlap_entry_ratio</code></td>
+      <td>正解字幕</td>
+      <td>人物ラベルを2つ以上含むエントリ ÷ 発話エントリ数。</td>
+      <td><strong>自動化①</strong>のクリップ選定（正解字幕しか無い段階で使える唯一の指標）。</td></tr>
+  <tr><td><code>overlap_time_ratio</code></td>
+      <td>pyannote（<code>Annotation</code>）</td>
+      <td>2人以上のクラスタが同時に喋っている時間 ÷ 発話総時間。<code>pyannote/speaker-diarization-3.1</code> は powerset 型のセグメンテーションで重なりを出力できるため、<code>Annotation</code> には同時刻に複数ラベルが立つ区間が含まれる。</td>
+      <td><strong>自動化②</strong>の説明変数。</td></tr>
+</table>
+
+<div class="warn">
+  <strong>pyannote から取るには、いまのアプリに出力を1つ足す必要がある。</strong>
+  現状 <code>src/diarization/processor.py</code> は <code>Annotation</code> をメモリ上で使うだけで<strong>ディスクに残していない</strong>
+  （残るのは話者名を付けた <code>transcription.csv</code> だけで、そこには重なりの情報が消えている）。
+  そこで <code>process_and_save_to_csv</code> に <strong>RTTM の書き出し</strong>を追加する（出力CSVと同じ場所に <code>&lt;CSV名&gt;.rttm</code>）。
+  Web UI と CLI は両方この関数を通るので<strong>変更は1箇所で済む</strong>。
+  <br><br>
+  この方式にする理由は、<strong>評価ツール側で pyannote を再実行しない</strong>ため。再実行すると denoise の有無や話者数ヒントで結果が変わり、
+  「実際に評価した実行とは違う分離結果の重なり率」を報告してしまう。実行時に残せば、<strong>その実行が実際に見た重なり</strong>を報告できる。
+</div>
+
+<div class="note">
+  <strong>解釈上の注意（分析時に一言添えるべき点）。</strong>
+  <code>overlap_time_ratio</code> は<strong>システムの出力</strong>なので、説明変数として使うと循環しうる。
+  重なりを検出し損ねた区間ほど重なり率が低く出るため、「重なり率が低いから容易だった」という説明が
+  「重なりを見落としたから低く見えた」と区別できない。
+  そのため<strong>自動化②のレポートには両方（<code>overlap_entry_ratio</code>・<code>overlap_time_ratio</code>）を並べて出す</strong>。
+  正解字幕由来の値と大きく食い違うクリップは、重なりの見落としが起きた候補として目視確認できる。
+</div>
+
+<h2>2. 成果物</h2>
+
+<table>
+  <tr><th>ファイル</th><th>役割</th></tr>
+  <tr><td><code>src/evaluation/srt_stats.py</code></td>
+      <td>共通土台。SRT のパース、話者ラベルの抽出・非発話判定、説明変数の算出。両ツールが使う。</td></tr>
+  <tr><td><code>src/evaluation/clip_selector.py</code></td>
+      <td><strong>自動化①</strong> 正解 SRT から「重なり・話者交替が多い5分」と「落ち着いた5分」を発話境界で選ぶ。ffmpeg コマンドも出力。</td></tr>
+  <tr><td><code>src/evaluation/evaluator.py</code></td>
+      <td><strong>自動化②</strong> アプリ生成 SRT × 正解 SRT から in 点・話者の評価指標を算出。説明変数も同時に出す。</td></tr>
+  <tr><td><code>src/diarization/processor.py</code>（既存の改修）</td>
+      <td><strong>唯一のアプリ本体への変更。</strong> 話者分離結果を RTTM で書き出す（<code>overlap_time_ratio</code> の材料）。追加は10行程度。</td></tr>
+  <tr><td><code>tests/test_srt_stats.py</code><br><code>tests/test_clip_selector.py</code><br><code>tests/test_evaluator.py</code></td>
+      <td>TDD。合成 SRT / RTTM を使ったユニットテスト。RTTM 書き出しは既存の <code>tests/test_diarization_processor.py</code> に足す。</td></tr>
+</table>
+
+<p>CLI は既存の <code>src/subtitle/exporter.py</code> と同じく各モジュール内に <code>argparse</code> で持たせる（新しい起動口を増やさない）。</p>
+
+<h2>3. 共通土台：srt_stats.py</h2>
+
+<h3>3-1. パース</h3>
+<p>既存の <code>src/subtitle/loader.py</code> は「音声認識SRT（<code>[話者]</code>前置）」専用で、BOM や複数話者に対応していないため<strong>流用せず、この用途のパーサを持つ</strong>。
+時刻は <code>HH:MM:SS,mmm</code> / <code>.mmm</code> の両方を受ける。BOM (<code>utf-8-sig</code>) を除去する。</p>
+
+<h3>3-2. 話者ラベルの抽出と非発話判定</h3>
+<p><strong>クライアント指示により、抽出対象は <code>（…）</code>（半角 <code>(…)</code> も同様）だけ</strong>とする。
+<code>[…]</code> <code>［…］</code> は効果音・音楽の表記なので<strong>ラベル候補として拾わない</strong>。</p>
+<ul>
+  <li><code>（）</code> の中に入っている効果音・音楽（<code>（軽快なBGM）</code> <code>（笑い）</code> <code>（ドアの作動音）</code> など）はキーワードで除外する。
+      既定の語（部分一致）は <code>BGM</code> <code>音楽</code> <code>効果音</code> <code>ジングル</code> <code>笑い</code> <code>拍手</code> <code>ざわめき</code> <code>歓声</code> と、末尾が <code>〜音</code> のもの。
+      加えて <code>笑</code> は<strong>完全一致のときだけ</strong>非発話とする（部分一致にすると <code>笑福亭</code> のような人名を巻き込むため）。
+      <code>--non-speech</code> で語を追加できる。</li>
+  <li>ラベルとみなすのは<strong>行頭・空白の直後・直前のラベルの直後</strong>から始まる <code>（）</code> だけ。
+      これにより <code>（岸谷）あとはClaude（クロード）</code> の「クロード」を話者と誤認せず、
+      <code>（吉村）あ、そうなんだ （松尾）そうですね</code> のような<strong>1行に2話者が並ぶ表記（重なりの手がかり）は拾える</strong>。</li>
+  <li>ラベルの後ろに付く注記（<code>（マクロン大統領（VTR））</code> <code>（中嶋／手話・音声通訳）</code>）は
+      <code>--strip-suffix</code> が指定されたときだけ <code>／</code> <code>・</code> 以降と入れ子の括弧を落として同一話者に寄せる。既定は落とさない（別名として扱う）。</li>
+</ul>
+<div class="warn">
+  <strong>キーワード判定は完全ではない。</strong> 「（謎の声）」は登録話者だが「（驚く声）」は非発話、のように語では割り切れない例がある
+  （そのため既定の語に <code>〜声</code> は入れない。<strong>「〜声」は話者名として残る</strong>）。
+  そこで<strong>非発話と判定したラベルの一覧と、話者と判定したラベルの一覧を必ず標準出力に出す</strong>。
+  1本あたり十数語なので目視確認は数秒で済み、誤りは <code>--non-speech</code> / <code>--speaker</code> で上書きできる。
+</div>
+
+<h3>3-3. 説明変数（予稿 4.3）</h3>
+<table>
+  <tr><th>変数名</th><th>定義</th></tr>
+  <tr><td><code>duration_sec</code></td><td>区間長（秒）。</td></tr>
+  <tr><td><code>speaker_count</code></td><td>区間に登場する話者ラベルの種類数（非発話を除いたもの）。<strong>自動化①ではこれを「登録話者数」の代理として使う</strong>（実験条件 4.2 で主要登場人物は全員登録する前提なので、字幕に出てくる名前付き話者数がほぼ登録話者数になる）。</td></tr>
+  <tr><td><code>utterance_count</code></td><td>発話を含む字幕エントリ数（非発話のみのエントリは数えない）＝発話総数。</td></tr>
+  <tr><td><code>speaker_change_count</code></td><td>発話エントリを時系列に並べ、代表話者（そのエントリの最初の話者ラベル）が直前と変わった回数。</td></tr>
+  <tr><td><code>speaker_change_per_min</code></td><td><code>speaker_change_count / (duration_sec/60)</code>。区間長が違っても比較できるようにする。</td></tr>
+  <tr><td><code>overlap_entry_count</code> / <code>overlap_entry_ratio</code></td><td>話者ラベルを2つ以上含むエントリ数と、その発話エントリに対する割合。</td></tr>
+  <tr><td><code>speech_time_ratio</code></td><td>発話エントリの合計時間 ÷ 区間長。無音・音楽が多い区間を見分ける補助。</td></tr>
+  <tr><td><code>overlap_time_ratio</code></td><td><strong>自動化②のみ。</strong> RTTM から算出する、2人以上が同時に喋っている時間の割合（3-4 節）。</td></tr>
+</table>
+
+<h3>3-4. RTTM からの重なり時間（自動化②用）</h3>
+<p><code>src/diarization/processor.py</code> が書き出した RTTM を読み、クラスタごとの区間を秒単位の数直線に重ねて
+<strong>同時刻に2つ以上のクラスタが立っている時間の合計</strong>を求める。区間の端点でイベントを作って走査する（区間数は数百なので単純な走査で足りる）。</p>
+<pre>overlap_time_ratio = 2人以上が同時に喋っている時間 / 1人以上が喋っている時間</pre>
+<p>RTTM が無い場合は <code>overlap_time_ratio</code> を空欄にして他の指標だけ出す（評価が止まらないようにする）。</p>
+<p>「Unknown_NN となった要因」は音を聴かないと決まらないので自動化の対象外。レポートに空欄の記入列として出すだけにする。</p>
+
+<h2>4. 自動化①：clip_selector.py</h2>
+
+<h3>4-1. 手順</h3>
+<div class="note">
+  <strong>入力は正解字幕 SRT だけ</strong>（クライアント指示）。声紋データベースは参照しない。
+  登録話者数の代わりに、字幕に出てくる話者ラベルの種類数（<code>speaker_count</code>）を使う。
+</div>
+
+<ol>
+  <li>正解 SRT を読む。</li>
+  <li><strong>候補窓の列挙。</strong> 各発話エントリの in 点を窓の開始候補とし、そこから
+      <code>--length</code>（既定 300 秒）以上になる最初の発話境界（=あるエントリの out 点）を窓の終わりにする。
+      これで<strong>切り出しは必ず発話境界</strong>になり、発話を途中でぶつ切りにしない。
+      実長が <code>--length ± --tolerance</code>（既定 ±15 秒）に収まらない候補は捨てる。</li>
+  <li><strong>難易度スコア。</strong> 全候補窓の <code>speaker_change_per_min</code> と <code>overlap_entry_ratio</code> をそれぞれ
+      z 正規化して<strong>単純に足す</strong>（重みは <code>--weight-change</code> / <code>--weight-overlap</code> で変更可、既定 1:1）。
+      標準偏差が 0 の指標は寄与 0 とする（＝ミュトスのように重なり表記が無い番組では、話者交替だけでスコアが決まる。この場合は警告を出す）。</li>
+  <li><strong>話者数の揃え。</strong> <code>--target-speakers N</code> が指定されたら
+      <code>|speaker_count - N|</code> × <code>--speaker-penalty</code>（既定 0.5）を難易度スコアから引く。
+      これで「可能な範囲で揃える」を効かせる。未指定なら無効。</li>
+  <li><strong>2窓の選択。</strong> <strong>時間が重ならない2窓の全組み合わせを総当り</strong>し、
+      <code>score(hard) - score(calm)</code> が最大になるペアを採る（候補は数百なので総当りで足りる。
+      「スコア最大の窓を先に固定して残りから探す」貪欲法より良いペアが選べる）。
+      スコアの高い方を「hard（重なり・話者交替が多い）」、低い方を「calm（落ち着いた）」とする。
+      重ならない2窓が作れない場合（＝動画が10分未満など）はエラーメッセージを出して終了する。</li>
+</ol>
+
+<h3>4-2. 出力</h3>
+<ul>
+  <li>標準出力に人が読める要約（各窓の in/out、説明変数、話者一覧、非発話と判定したラベル一覧）。</li>
+  <li><code>--out-csv</code> で説明変数を1行1クリップの CSV に。複数番組を <code>--append</code> で1枚に集約できる。</li>
+  <li><code>--out-srt-dir</code> で各窓に対応する正解 SRT を<strong>クリップ先頭を 0 秒に振り直して</strong>切り出し保存（そのまま評価の正解データになる）。</li>
+  <li>切り出し用 ffmpeg コマンドを表示（実行はしない。<code>-ss</code>/<code>-to</code> は既存 <code>src/common/audio.py</code> と同じ書式に揃える）。</li>
+</ul>
+
+<pre>uv run python -m src.evaluation.clip_selector \
+    --srt "字幕（ココナラで依頼したもの）/転スラ.srt" \
+    --video 転スラ1話.mp4 \
+    --target-speakers 5 \
+    --out-csv docs/experiment/clip_variables.csv --append \
+    --out-srt-dir docs/experiment/gt</pre>
+
+<h2>5. 自動化②：evaluator.py</h2>
+
+<h3>5-1. 対応付け（クライアント選択：本文テキストで対応付け）</h3>
+<p>正解 SRT とアプリ生成 SRT は同じ人手文字起こし文が元なので、本文が一致するはず。ただしアプリ側は話者名を
+<code>（話者名）</code>として本文に前置し、しかも<strong>話者が変わったときだけ前置する</strong>（<code>src/subtitle/exporter.py</code> の仕様）。
+そこで両者から話者ラベルを剥がし、<code>src/subtitle/ngram.normalize_text</code> で正規化してから
+<code>difflib.SequenceMatcher</code> で<strong>順序を保った 1:1 対応</strong>を取る。
+完全一致で対応しなかった行は、前後の未対応行の中から類似度が <code>--min-similarity</code>（既定 0.6）以上で最大のものに割り当てる。
+それでも余った行は「対応なし」として件数だけ報告する（in 点・話者の評価対象からは外す）。</p>
+<div class="note">
+  アプリ側の話者ラベルは「変わったときだけ前置」なので、剥がしたあと<strong>直前の話者を引き継いで補完</strong>してから比較する。ここを外すと話者一致率が壊滅するので、テストで固定する。
+</div>
+
+<h3>5-2. 指標（予稿 4.5）</h3>
+<table>
+  <tr><th>指標</th><th>定義</th></tr>
+  <tr><td>in 点</td><td><code>|app.start - gt.start| &lt;= --tolerance</code> なら正解。既定 0.5 秒。<strong>閾値は複数まとめて渡せる</strong>ようにし（<code>--tolerance 0.3 0.5 1.0</code>）、「許容できるずれは事前の試行で決定する」に使えるようにする。平均・中央値・最大の絶対誤差も出す。</td></tr>
+  <tr><td>話者一致</td><td>対応付いた発話単位で <code>app.speaker == gt.speaker</code> か。正解率と件数。</td></tr>
+  <tr><td>false negative</td><td>正解が登録話者なのに、アプリが <code>Unknown_NN</code>（または空欄）を付けた件数。</td></tr>
+  <tr><td>false positive</td><td>アプリが登録話者名を付けたが、正解と違う人だった件数（正解が未登録話者だった場合も含む）。</td></tr>
+  <tr><td>正しく Unknown</td><td>正解も未登録話者で、アプリも <code>Unknown_NN</code> だった件数（誤りではないので別立てにする）。</td></tr>
+  <tr><td>混同行列</td><td><code>--out-confusion</code> で「正解話者 × アプリ話者」のクロス表を CSV に。どのキャラがどのキャラと取り違えられたかを見るため。</td></tr>
+</table>
+<p><code>Unknown_NN</code> の判定は正規表現 <code>^Unknown(_\d+)?$</code>（大文字小文字を無視）と空欄。</p>
+
+<h3>5-3. 入力と出力</h3>
+<pre>uv run python -m src.evaluation.evaluator \
+    --gt docs/experiment/gt/転スラ_hard.srt \
+    --app temp/subtitles.srt \
+    --voice-db voice_databases/転スラ \
+    --rttm temp/transcription.rttm \
+    --transcript 転スラ_文字起こし.txt \
+    --tolerance 0.3 0.5 1.0 \
+    --out-csv docs/experiment/results.csv --append \
+    --out-detail docs/experiment/転スラ_hard_detail.csv</pre>
+<ul>
+  <li><code>--voice-db</code>（任意）：声紋DBのディレクトリ。<strong>FN / FP の判定に使う「登録話者リスト」の取得元</strong>
+      （<code>voice_databases/転スラ/*.wav</code> のファイル名から <code>田村_叫び声</code>→<code>田村</code> のように <code>_</code> 以降を落として集める）。
+      未指定なら <code>--speakers</code> で直接渡す。どちらも無い場合は「正解に出てくる全話者が登録済み」と仮定する。</li>
+  <li><code>--rttm</code>（任意）：アプリ実行時に書き出された話者分離結果。<code>overlap_time_ratio</code> の算出に使う。</li>
+  <li><code>--transcript</code>（任意）：人手文字起こしテキスト。<strong>行数が正解 SRT の発話数と合うかの照合にだけ使う</strong>（正解データの取りこぼし検出）。指標そのものには使わない。</li>
+  <li><code>--out-csv</code>：1行1クリップの指標＋説明変数。<code>--append</code> でジャンル横断の分析用に集約できる。</li>
+  <li><code>--out-detail</code>：1行1発話の突き合わせ結果（in 点差・正解話者・アプリ話者・誤り種別）。誤りの目視分析用。</li>
+</ul>
+
+<h2>6. アプリ本体の改修（RTTM 書き出し）</h2>
+
+<p><code>src/diarization/processor.py</code> の <code>process_and_save_to_csv</code> に、話者分離結果の書き出しを1つ足す。</p>
+<ul>
+  <li>出力先は <code>output_csv_path</code> の拡張子を <code>.rttm</code> に替えたパス（例 <code>temp/transcription.csv</code> → <code>temp/transcription.rttm</code>）。</li>
+  <li>中身は標準的な RTTM 1行1区間。話者名はクラスタID（<code>SPEAKER_00</code>）ではなく<strong>照合後の話者名</strong>を入れる（<code>self.assignments</code> を通す）。これで RTTM 単体でも読める。</li>
+  <li><strong>書き出しに失敗しても本体の処理は止めない</strong>（実験用の副産物であり、字幕生成の成否とは無関係。既存の <code>logger.warning</code> にとどめる）。</li>
+  <li>Web UI と CLI は両方この関数を通るので、変更は1箇所。Spark も Web UI 経由で動かしているため追加のプラミングは不要。</li>
+</ul>
+
+<h2>7. やらないこと</h2>
+<ul>
+  <li>音声・動画の実際の切り出し（ffmpeg コマンドを出すところまで。誤爆すると重いので実行はしない）。</li>
+  <li>Unknown_NN の要因分類の自動化（聴取が必要）。</li>
+  <li>Web UI への組み込み（実験用の CLI に留める）。</li>
+  <li>評価ツール側での pyannote 再実行（1-1 節の理由により、実行時に RTTM を残す方式にする）。</li>
+  <li>正解字幕からの時間ベース重なり率の算出（重複区間が無いため不可能）。</li>
+</ul>
+
+
+<h2>9. 実装後に判明した事実と対応</h2>
+
+<h3>9-1. アプリ生成字幕の話者表記は2形式ある（silent failure の回避）</h3>
+<div class="warn">
+  実装中に <code>temp/subtitles.srt</code> を確認して判明した。アプリの出力には<strong>2つの話者表記</strong>がある。
+  <ul>
+    <li><code>(話者名)本文</code> … 最終字幕。<code>src/subtitle/exporter.py</code> の <code>format_subtitle_text</code>（<strong>半角</strong>括弧）</li>
+    <li><code>[話者名] 本文</code> … 仮字幕。<code>src/web/converters.py</code> の <code>transcription_csv_to_srt</code></li>
+  </ul>
+  正解字幕では <code>[…]</code> を効果音として無視する仕様なので、<strong>そのままでは後者を評価したときに全発話が
+  false negative になり、しかもエラーにならない</strong>（0% が正しい測定値のように見える）。
+  そこで <code>LabelRules.should_read_square_brackets</code> を追加し、<strong>アプリ側の字幕だけ</strong>
+  <code>[…]</code> も話者ラベルとして読むようにした（アプリ出力の <code>[…]</code> に効果音は入らない）。
+  <code>tests/test_evaluator.py</code> の <code>TestCLIとアプリ字幕の話者表記</code> で両形式を固定している。
+</div>
+
+<h3>9-2. 実データ9本での確認結果（T8）</h3>
+<p>納品字幕9本すべてで動作を確認した。選定されたクリップの例:</p>
+<table>
+  <tr><th>番組</th><th>hard の話者交替 / 重なり</th><th>calm の話者交替 / 重なり</th></tr>
+  <tr><td>ANIMALS（バラエティ）</td><td>10.92 回/分 / 14.9%</td><td>5.36 回/分 / 8.5%</td></tr>
+  <tr><td>しくじり先生AI（バラエティ）</td><td>12.12 回/分 / 10.9%</td><td>6.60 回/分 / 4.8%</td></tr>
+  <tr><td>コンビニ店長（トーク）</td><td>14.47 回/分 / 9.5%</td><td>10.49 回/分 / 4.6%</td></tr>
+  <tr><td>PIVOT（情報番組）</td><td>3.39 回/分 / 0.7%</td><td>2.00 回/分 / 0.0%</td></tr>
+  <tr><td>転スラ（アニメ）</td><td>8.19 回/分 / 0.0%</td><td>3.35 回/分 / 0.0%</td></tr>
+  <tr><td>インフォーマ（ドラマ）</td><td>10.77 回/分 / 1.1%</td><td>3.35 回/分 / 0.0%</td></tr>
+</table>
+<ul>
+  <li><strong>キーワードによる非発話判定は実用範囲だった。</strong> 例えば ANIMALS では「台車を押す音と足音」「化粧品が割れる」「息を切らしながら走る」などのト書きを正しく除外し、
+      話者24名を拾った。ただし「発話が重なる」「驚きの声」「叫び声」「Youtubeコメント」のように<strong>語では割り切れないラベルは残る</strong>ので、
+      判定結果の一覧を毎回標準出力に出し、<code>--speaker</code> / <code>--non-speech</code> で上書きする運用にした。</li>
+  <li><strong>コンビニ店長（全長 610 秒）だけは既定値で2本取れなかった。</strong> 発話区間が 7.8〜609.3 秒しかなく、
+      発話境界に合わせると 300 秒×2 が入らない。<code>--length 290 --tolerance 30</code> で hard（14.47 回/分・9.5%）/ calm（10.49 回/分・4.6%）が取れることを確認した。
+      エラーメッセージにもこの対処を示している。</li>
+  <li>評価側は、切り出した <code>転スラ_hard.srt</code> の in 点をずらし3件に1件を <code>Unknown_01</code> にした擬似アプリ出力で通し、
+      77件全件が対応付き、false negative 25件・in点 ±1秒 80.5% と、仕込んだ通りの数値が出ることを確認した。</li>
+</ul>
+
+<h3>9-3. 規約からの逸脱（1ファイル400行）</h3>
+<div class="note">
+  <code>srt_stats.py</code> 550行 / <code>clip_selector.py</code> 508行 / <code>evaluator.py</code> 624行 で、
+  第4章のファイル行数の目安（400行）を超えている。<strong>クライアントから「文字制限は無視してよい」との指示があったため、分割せずに1機能1ファイルを保った。</strong>
+  内訳は docstring と <code>argparse</code> の引数定義が大半で、ロジック自体は各150〜250行程度。
+  分割するなら CLI 部（各ファイル末尾の <code>_parse_args</code> 以降）を切り出すのが自然。
+</div>
+
+<h2>10. ToDo</h2>
+<ul class="todo">
+  <li><span class="status s-done">完了</span> T1. <code>tests/test_srt_stats.py</code> を書く（パース／<code>（）</code>のみの話者抽出／非発話キーワード除外／説明変数／RTTM の重なり時間）</li>
+  <li><span class="status s-done">完了</span> T2. <code>src/evaluation/srt_stats.py</code> を実装して T1 を通す</li>
+  <li><span class="status s-done">完了</span> T3. <code>tests/test_clip_selector.py</code> を書く（発話境界・窓長許容・スコア・非重複の最適ペア）</li>
+  <li><span class="status s-done">完了</span> T4. <code>src/evaluation/clip_selector.py</code> を実装して T3 を通す（CLI含む。入力は正解SRTのみ）</li>
+  <li><span class="status s-done">完了</span> T5. <code>tests/test_evaluator.py</code> を書く（話者引き継ぎ補完・対応付け・in点閾値・FN/FP分類）</li>
+  <li><span class="status s-done">完了</span> T6. <code>src/evaluation/evaluator.py</code> を実装して T5 を通す（CLI含む）</li>
+  <li><span class="status s-done">完了</span> T7. <code>processor.py</code> に RTTM 書き出しを追加し、<code>tests/test_diarization_processor.py</code> にテストを足す</li>
+  <li><span class="status s-done">完了</span> T8. 実データ9本で clip_selector を通し、選定結果と話者／非発話の判定を目視確認</li>
+  <li><span class="status s-done">完了</span> T9. 実機（Spark）で1本流し、<strong>RTTM に実際に重なり区間が入るか</strong>と <code>overlap_time_ratio</code> の妥当性を確認</li>
+  <li><span class="status s-done">完了</span> T10. <code>uv run pytest</code> 全件と <code>ruff check</code> を通す／README に使い方を追記</li>
+</ul>
+

@@ -62,3 +62,30 @@ def write_rows(
     """
     with open(csv_path, "w", encoding=CSV_ENCODING, newline="") as f:
         csv.writer(f, quoting=quoting).writerows(rows)
+
+
+def write_dict_rows(
+    csv_path: Path, rows: list[dict[str, object]], *, should_append: bool = False
+) -> None:
+    """辞書のリストを CSV として書き出す。
+
+    実験結果を1行1クリップで溜めていく用途のため、追記に対応している。
+
+    Args:
+        csv_path: 出力先。
+        rows: 書き出す行。1件目のキーをヘッダとして使う。空なら何もしない。
+        should_append: True なら既存ファイルの末尾に足す（ヘッダは書かない）。
+            ファイルが存在しない場合はヘッダから作る。
+
+    Raises:
+        OSError: 書き込みに失敗した場合。
+    """
+    if not rows:
+        return
+    should_write_header = not (should_append and Path(csv_path).exists())
+    mode = "a" if should_append else "w"
+    with open(csv_path, mode, encoding=CSV_ENCODING, newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=list(rows[0]))
+        if should_write_header:
+            writer.writeheader()
+        writer.writerows(rows)

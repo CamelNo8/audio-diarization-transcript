@@ -239,7 +239,21 @@ class AudioProcessor:
             return False
 
         logger.info(f"Successfully finished writing results to {self.output_csv_path}")
+        self._write_diarization_rttm(diarization)
         return True
+
+    def _write_diarization_rttm(self, diarization) -> None:
+        """話者分離の結果を RTTM としても残す（実験の重なり率算出用）。
+
+        字幕生成の成否とは無関係な副産物なので、失敗しても警告だけで続行する。
+        """
+        rttm_path = self.output_csv_path.with_suffix(".rttm")
+        try:
+            transcript.write_rttm(diarization, self.assignments, rttm_path)
+        except (OSError, AttributeError) as e:
+            logger.warning(f"話者分離結果（RTTM）を保存できませんでした: {e}")
+            return
+        logger.info(f"話者分離結果（RTTM）を保存しました: {rttm_path}")
 
     # ------------------------------------------------------------------
     # API 向け: 話者照合と CSV 出力は行わず、結果を dict で返す
