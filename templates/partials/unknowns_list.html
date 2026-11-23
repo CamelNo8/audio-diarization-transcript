@@ -3,159 +3,156 @@
 {% set resolved = job.clusters | selectattr('resolved') | list %}
 
 {% if last_message %}
-<div class="mb-4 p-3 bg-green-50 border-l-4 border-green-500 rounded-r text-sm text-green-800">
-    {{ last_message }}
-</div>
-{% endif %}
-
-{# 同名DBの上書き確認バナー #}
-{% if confirm_existing %}
-<div class="mb-4 p-4 bg-yellow-50 border-l-4 border-yellow-500 rounded-r">
-    <p class="text-sm text-yellow-800">
-        ⚠️ 「<strong>{{ confirm_existing.db_name }}</strong>」というデータベースは既に存在します。
-        この既存DBに「<strong>{{ confirm_existing.speaker_name }}</strong>」を保存しますか？
-    </p>
-    <div class="mt-3 flex gap-2">
-        <form hx-post="/unknowns/{{ job.job_id }}/label/{{ confirm_existing.cluster_id }}"
-              hx-target="#unknowns-list" hx-swap="innerHTML">
-            <input type="hidden" name="speaker_name" value="{{ confirm_existing.speaker_name }}">
-            <input type="hidden" name="db_name" value="{{ confirm_existing.db_name }}">
-            <button type="submit"
-                    class="text-sm bg-yellow-600 hover:bg-yellow-700 text-white font-medium py-1 px-3 rounded">
-                既存DBに保存する
-            </button>
-        </form>
-        <button type="button" onclick="this.closest('.bg-yellow-50').remove()"
-                class="text-sm bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-1 px-3 rounded">
-            別名にする
-        </button>
+<div class="dads-banner dads-banner--success u-mb-3" role="status">
+    <svg class="dads-banner__icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1 14.4-4.2-4.2 1.4-1.4 2.8 2.8 5.6-5.6 1.4 1.4-7 7z"/>
+    </svg>
+    <div class="dads-banner__body">
+        <p>{{ last_message }}</p>
     </div>
 </div>
 {% endif %}
 
-{# 全ラベル付けで共通の DB セレクタ #}
-<div class="mb-6 p-4 bg-purple-50 border border-purple-200 rounded-lg">
-    <label class="block text-sm font-medium text-gray-700 mb-2">📁 保存先データベース</label>
-    <select id="label-db-select" onchange="toggleNewDbInput()"
-            class="w-full text-sm border border-gray-300 rounded px-2 py-1">
+{# 同名DBの上書き確認 #}
+{% if confirm_existing %}
+<div class="dads-banner dads-banner--warning u-mb-3" role="alert">
+    <svg class="dads-banner__icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M12 2 1 21h22L12 2zm0 5 7.5 13h-15L12 7zm-1 4v4h2v-4h-2zm0 5v2h2v-2h-2z"/>
+    </svg>
+    <div class="dads-banner__body">
+        <p class="dads-banner__title">同じ名前のデータベースがあります</p>
+        <p>
+            「<strong>{{ confirm_existing.db_name }}</strong>」は既にあります。
+            この既存のデータベースに「<strong>{{ confirm_existing.speaker_name }}</strong>」を保存しますか？
+        </p>
+        <div class="dads-banner__actions">
+            <form hx-post="/unknowns/{{ job.job_id }}/label/{{ confirm_existing.cluster_id }}"
+                  hx-target="#unknowns-list" hx-swap="innerHTML">
+                <input type="hidden" name="speaker_name" value="{{ confirm_existing.speaker_name }}">
+                <input type="hidden" name="db_name" value="{{ confirm_existing.db_name }}">
+                <button class="dads-button" type="submit">既存のデータベースに保存する</button>
+            </form>
+            <button class="dads-button dads-button--outline" type="button"
+                    onclick="this.closest('.dads-banner').remove()">
+                別の名前にする
+            </button>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{# ラベル付けで共通に使う保存先の選択 #}
+<div class="dads-card u-mb-3">
+    <label class="dads-label" for="label-db-select">保存先のデータベース</label>
+    <select class="dads-select" id="label-db-select" onchange="toggleNewDbInput()">
         {% for db in databases %}
         <option value="{{ db.name }}" {% if db.name == job.db_name %}selected{% endif %}>
-            {{ db.name }} ({{ db.speaker_count }} 話者)
+            {{ db.name }}（{{ db.speaker_count }} 話者）
         </option>
         {% endfor %}
         <option value="__new__" {% if not databases %}selected{% endif %}>
-            ＋ 新規データベースを作成…
+            新しいデータベースを作る
         </option>
     </select>
-    <input type="text" id="label-new-db-name" placeholder="新規データベース名（例: オードリー）"
-           class="w-full text-sm border border-gray-300 rounded px-2 py-1 mt-2 {% if databases %}hidden{% endif %}">
-    <p class="text-xs text-gray-500 mt-1">
-        ラベル付けした音声は <strong>このDB</strong> に <code>{名前}.wav</code> として保存され、
-        残りの Unknown も同じDBで自動再照合されます。
-        新規DBを選ぶと、その名前で <code>voice_databases/</code> 下に新しいDBが作成されます。
+    <input class="dads-input u-mt-2 {% if databases %}u-hidden{% endif %}" type="text" id="label-new-db-name"
+           placeholder="例: オードリー" aria-label="新しいデータベースの名前">
+    <p class="dads-help">
+        名前を付けた音声は、このデータベースに <code>{名前}.wav</code> として保存されます。
+        残りの Unknown も同じデータベースで自動的に再照合します。
     </p>
 </div>
 
-{# 未解決クラスタ #}
-<h3 class="text-lg font-semibold text-gray-800 mb-3">
-    未ラベル ({{ unresolved | length }} / {{ job.clusters | length }})
-</h3>
+<h2 class="u-mb-3">名前が付いていない話者（{{ unresolved | length }} / {{ job.clusters | length }}）</h2>
 {% if unresolved %}
-<div class="space-y-4">
+<ul class="dads-list">
     {% for c in unresolved %}
-    <div class="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
-        <div class="flex items-start justify-between mb-2">
-            <div>
-                <p class="font-mono text-sm text-gray-700">{{ c.unknown_label }}
-                    <span class="text-xs text-gray-400">(cluster {{ c.cluster_id }})</span>
-                </p>
-                <p class="text-xs text-gray-500">
-                    区間: {{ "%.2f"|format(c.segment_start) }}s – {{ "%.2f"|format(c.segment_end) }}s
-                    {% if c.distance %}
-                    · 最近傍距離: {{ "%.4f"|format(c.distance) }}
-                    {% endif %}
-                </p>
-            </div>
-        </div>
+    <li class="dads-card">
+        <p><strong>{{ c.unknown_label }}</strong>
+            <span class="u-caption u-sub">クラスタ {{ c.cluster_id }}</span>
+        </p>
+        <p class="u-caption u-sub">
+            区間 {{ "%.2f"|format(c.segment_start) }} 秒 – {{ "%.2f"|format(c.segment_end) }} 秒
+            {% if c.distance %}　最も近い登録話者との距離 {{ "%.4f"|format(c.distance) }}{% endif %}
+        </p>
 
-        <audio controls preload="none" src="/unknowns/{{ job.job_id }}/clip/{{ c.cluster_id }}"
-               class="w-full h-9 mb-3"></audio>
+        <audio class="u-mt-2" controls preload="none" style="width: 100%"
+               src="/unknowns/{{ job.job_id }}/clip/{{ c.cluster_id }}"></audio>
 
         {% if c.candidate_distances %}
-        <details class="mb-2">
-            <summary class="text-xs text-gray-500 cursor-pointer select-none">候補話者の距離</summary>
-            <ul class="mt-1 ml-4 text-xs text-gray-600 list-disc">
-                {% for name, dist in c.candidate_distances.items() | sort(attribute=1) %}
-                <li>{{ name }}: {{ "%.4f"|format(dist) }}</li>
-                {% endfor %}
-            </ul>
+        <details class="dads-details u-mt-2">
+            <summary>候補の話者との距離</summary>
+            <div class="dads-details__body">
+                <ul>
+                    {% for name, dist in c.candidate_distances.items() | sort(attribute=1) %}
+                    <li>{{ name }}: {{ "%.4f"|format(dist) }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
         </details>
         {% endif %}
 
-        <form hx-post="/unknowns/{{ job.job_id }}/label/{{ c.cluster_id }}"
+        <form class="u-mt-3"
+              hx-post="/unknowns/{{ job.job_id }}/label/{{ c.cluster_id }}"
               hx-target="#unknowns-list"
               hx-swap="innerHTML"
-              hx-include="#label-db-select"
-              class="mt-2">
-            <div class="flex gap-2">
-                <input type="text" name="speaker_name" placeholder="話者名（例: 三上）"
-                       required
-                       class="flex-1 text-sm border border-gray-300 rounded px-2 py-1 focus:ring-2 focus:ring-purple-400 focus:outline-none">
+              hx-include="#label-db-select">
+            <div class="u-row">
+                <input class="dads-input u-grow" type="text" name="speaker_name" required
+                       placeholder="話者名（例: 三上）"
+                       aria-label="{{ c.unknown_label }} の話者名">
                 <input type="hidden" name="db_name" value="">
-                <button type="submit"
-                        class="text-sm bg-purple-600 hover:bg-purple-700 text-white font-medium py-1 px-3 rounded whitespace-nowrap">
-                    ラベル付け
-                </button>
+                <button class="dads-button" type="submit">名前を付ける</button>
             </div>
             {{ ce.crop_editor('clip-' ~ c.cluster_id, '/unknowns/' ~ job.job_id ~ '/clip/' ~ c.cluster_id, 'clip_start', 'clip_end') }}
         </form>
-    </div>
+    </li>
     {% endfor %}
-</div>
+</ul>
 {% else %}
-<p class="text-sm text-gray-500 italic bg-gray-50 border border-gray-200 rounded p-4">
-    ✓ すべてのクラスタがラベル付けされました。下から更新済みCSVをダウンロードしてください。
-</p>
+<div class="dads-banner dads-banner--success" role="status">
+    <svg class="dads-banner__icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1 14.4-4.2-4.2 1.4-1.4 2.8 2.8 5.6-5.6 1.4 1.4-7 7z"/>
+    </svg>
+    <div class="dads-banner__body">
+        <p class="dads-banner__title">すべての話者に名前が付きました</p>
+        <p>下のボタンから、更新済みの文字起こしCSVをダウンロードしてください。</p>
+    </div>
+</div>
 {% endif %}
 
-{# 解決済みクラスタ #}
 {% if resolved %}
-<h3 class="text-lg font-semibold text-gray-800 mt-8 mb-3">
-    ラベル付け済み ({{ resolved | length }})
-</h3>
-<ul class="divide-y divide-gray-100 bg-white border border-gray-200 rounded-lg">
+<h2 class="u-mt-5 u-mb-3">名前を付けた話者（{{ resolved | length }}）</h2>
+<ul class="dads-list">
     {% for c in resolved %}
-    <li class="p-3 flex items-center justify-between text-sm">
-        <div>
-            <span class="font-mono text-gray-500">{{ c.unknown_label }}</span>
-            <span class="mx-2">→</span>
-            <span class="font-semibold text-gray-900">{{ c.resolved_name }}</span>
-            <span class="ml-2 text-xs px-2 py-0.5 rounded-full
-                {% if c.resolved_method == 'manual' %}bg-purple-100 text-purple-700{% else %}bg-blue-100 text-blue-700{% endif %}">
-                {{ '手動' if c.resolved_method == 'manual' else '自動再照合' }}
-            </span>
+    <li class="dads-item">
+        <div class="dads-item__main">
+            <p>
+                {{ c.unknown_label }} → <strong>{{ c.resolved_name }}</strong>
+                <span class="dads-tag {% if c.resolved_method != 'manual' %}dads-tag--success{% endif %}">
+                    {{ '手動' if c.resolved_method == 'manual' else '自動で再照合' }}
+                </span>
+            </p>
             {% if c.distance %}
-            <span class="ml-2 text-xs text-gray-400">距離 {{ "%.4f"|format(c.distance) }}</span>
+            <p class="u-caption u-sub">距離 {{ "%.4f"|format(c.distance) }}</p>
             {% endif %}
         </div>
         {#
-          手動でラベル付けしたものは、DB に保存された音声そのものを鳴らす。
+          手動で名前を付けたものは、DB に保存された音声そのものを鳴らす。
           切り出し範囲を指定した場合、ここで切り出し後の音が確認できる。
           自動再照合で解決したものは DB にファイルを追加していない（既存話者の
           音声を指すことになり別人の声になる）ので、元のクラスタ音声を鳴らす。
         #}
         {% if c.resolved_method == 'manual' and job.db_name %}
-        <div class="flex items-center gap-2">
-            <span class="text-xs text-gray-400 whitespace-nowrap">保存された音声</span>
-            <audio controls preload="none"
-                   src="/api/databases/{{ job.db_name|urlencode }}/speakers/{{ (c.resolved_name ~ '.wav')|urlencode }}/audio"
-                   class="h-8" style="max-width:220px"></audio>
+        <div>
+            <p class="u-caption u-sub">保存された音声</p>
+            <audio controls preload="none" style="max-width: 240px"
+                   src="/api/databases/{{ job.db_name|urlencode }}/speakers/{{ (c.resolved_name ~ '.wav')|urlencode }}/audio"></audio>
         </div>
         {% else %}
-        <div class="flex items-center gap-2">
-            <span class="text-xs text-gray-400 whitespace-nowrap">クラスタ音声</span>
-            <audio controls preload="none" src="/unknowns/{{ job.job_id }}/clip/{{ c.cluster_id }}"
-                   class="h-8" style="max-width:220px"></audio>
+        <div>
+            <p class="u-caption u-sub">クラスタの音声</p>
+            <audio controls preload="none" style="max-width: 240px"
+                   src="/unknowns/{{ job.job_id }}/clip/{{ c.cluster_id }}"></audio>
         </div>
         {% endif %}
     </li>
@@ -163,34 +160,32 @@
 </ul>
 {% endif %}
 
-<div class="mt-8 pt-6 border-t border-gray-200 flex items-center justify-between">
-    <a href="/download/{{ job.csv_filename }}"
-       class="inline-block bg-purple-600 hover:bg-purple-700 text-white font-medium py-2 px-4 rounded">
-        💾 更新済み文字起こしCSVをダウンロード
-    </a>
-    <span class="text-xs text-gray-400">ジョブID: {{ job.job_id }}</span>
+<div class="u-row u-mt-5">
+    <a class="dads-button" href="/download/{{ job.csv_filename }}">更新済みの文字起こしCSVをダウンロード</a>
+    <a class="dads-button dads-button--outline" href="/matching?job_id={{ job.job_id | urlencode }}">Step 2 へ進む</a>
+    <span class="u-caption u-sub">ジョブID: {{ job.job_id }}</span>
 </div>
 
 <script>
-    // 新規DB名の入力欄を、セレクタが __new__ の時だけ表示
+    // 新しいデータベース名の入力欄は、選択が「新しく作る」のときだけ出す
     function toggleNewDbInput() {
-        const sel = document.getElementById('label-db-select');
-        const inp = document.getElementById('label-new-db-name');
-        if (!sel || !inp) return;
-        inp.classList.toggle('hidden', sel.value !== '__new__');
+        const select = document.getElementById('label-db-select');
+        const input = document.getElementById('label-new-db-name');
+        if (!select || !input) return;
+        input.classList.toggle('u-hidden', select.value !== '__new__');
     }
     toggleNewDbInput();
 
-    // フォーム送信前に DB セレクタの値を hidden の db_name にコピー
+    // 送信前に、選んだデータベース名を hidden の db_name へ写す
     // （確認バナーのフォームは自前の hidden db_name を持つので上書きしない）
     document.body.addEventListener('htmx:configRequest', (e) => {
         const path = e.detail.path || '';
         if (path.startsWith('/unknowns/') && path.includes('/label/')) {
             if (e.detail.parameters['db_name']) return;
-            const sel = document.getElementById('label-db-select');
-            if (sel) e.detail.parameters['db_name'] = sel.value;
-            const inp = document.getElementById('label-new-db-name');
-            if (inp) e.detail.parameters['new_db_name'] = inp.value;
+            const select = document.getElementById('label-db-select');
+            if (select) e.detail.parameters['db_name'] = select.value;
+            const input = document.getElementById('label-new-db-name');
+            if (input) e.detail.parameters['new_db_name'] = input.value;
         }
     });
 </script>

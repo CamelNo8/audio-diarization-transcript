@@ -1,0 +1,236 @@
+{% extends "base.html" %}
+{% block title %}Step 1 文字起こし・話者分離 ｜ 音声 → 字幕 統合アプリ{% endblock %}
+
+{% block content %}
+{% set current = 1 %}
+{% include "partials/step_nav.html" %}
+
+<h1 class="dads-page-title">Step 1　文字起こし・話者分離</h1>
+<p class="dads-lead">
+    音声または動画と、声紋データベース（任意）から、話者名つきの文字起こしSRTを作ります。
+</p>
+
+<form class="dads-card dads-stack"
+      hx-post="/process/transcription"
+      hx-encoding="multipart/form-data"
+      hx-target="#transcription-result"
+      hx-indicator="#transcription-indicator">
+
+    <div class="dads-field">
+        <label class="dads-label" for="audio-file">
+            音声・動画ファイル<span class="dads-required">必須</span>
+        </label>
+        <input class="dads-file" type="file" id="audio-file" name="audio_file" required
+               accept=".wav,.mp3,.m4a,.flac,.mp4,.mov,.ogg,.opus,.aac,.wma">
+        <p class="dads-help">wav / mp3 / m4a / flac / mp4 / mov / ogg / opus / aac / wma に対応しています。</p>
+    </div>
+
+    <fieldset class="dads-fieldset">
+        <legend>声紋データベース</legend>
+        <div class="dads-choice-group">
+            <label class="dads-choice">
+                <input type="radio" name="db_choice" value="none" checked onchange="toggleDbChoice()">
+                <span class="dads-choice__body">
+                    <strong>使わない</strong>
+                    <span class="dads-choice__note">話者照合をせず、SPEAKER_00 のような仮の名前を付けます。</span>
+                </span>
+            </label>
+
+            <label class="dads-choice">
+                <input type="radio" name="db_choice" value="existing" onchange="toggleDbChoice()">
+                <span class="dads-choice__body">
+                    <strong>既存のデータベースを使う</strong>
+                </span>
+            </label>
+            <div id="db-existing-block" class="u-hidden">
+                <div class="u-row">
+                    <select class="dads-select dads-select--sm u-grow" name="db_existing_name" id="db-existing-select"
+                            aria-label="使用する声紋データベース">
+                        <option value="">データベースを選択してください</option>
+                        {% for db in databases %}
+                        <option value="{{ db.name }}">{{ db.name }}（{{ db.speaker_count }} 話者）</option>
+                        {% endfor %}
+                    </select>
+                    <button class="dads-button dads-button--outline dads-button--sm" type="button"
+                            onclick="refreshDbSelect()">一覧を更新</button>
+                </div>
+                <p id="db-empty-hint" class="dads-help {% if databases %}u-hidden{% endif %}">
+                    データベースがまだありません。<a href="/databases">声紋データベース管理</a>で作成してください。
+                </p>
+            </div>
+
+            <label class="dads-choice">
+                <input type="radio" name="db_choice" value="new" onchange="toggleDbChoice()">
+                <span class="dads-choice__body">
+                    <strong>新しいデータベースを作る</strong>
+                </span>
+            </label>
+            <div id="db-new-block" class="u-hidden">
+                <input class="dads-input dads-input--sm" type="text" name="db_new_name"
+                       placeholder="例: 転スラ_hard" aria-label="新しいデータベースの名前">
+            </div>
+        </div>
+
+        <div id="db-upload-block" class="u-hidden u-mt-3">
+            <label class="dads-label" for="registry-files">
+                このデータベースに追加する声紋ファイル
+                <span class="dads-label__note">任意・複数選択できます</span>
+            </label>
+            <input class="dads-file" type="file" id="registry-files" name="registry_files" multiple
+                   accept=".wav,.mp3,.m4a,.flac,.mp4,.mov,.ogg,.opus,.aac,.wma">
+            <p class="dads-help">ファイル名（拡張子をのぞいた部分）が話者名になります。</p>
+        </div>
+    </fieldset>
+
+    <fieldset class="dads-fieldset">
+        <legend>背景音の除去</legend>
+        <div class="dads-choice-group">
+            <label class="dads-choice">
+                <input type="radio" name="denoise_mode" value="off" checked>
+                <span class="dads-choice__body">
+                    <strong>なし</strong>
+                    <span class="dads-choice__note">元の音声をそのまま使います。BGM のない音声向け。まずはこれで試してください。</span>
+                </span>
+            </label>
+            <label class="dads-choice">
+                <input type="radio" name="denoise_mode" value="fast">
+                <span class="dads-choice__body">
+                    <strong>高速</strong>（Kim_Vocal_2 / 約 80MB）
+                    <span class="dads-choice__note">処理時間 +30秒〜1分。軽い BGM や雑音の除去に向きます。</span>
+                </span>
+            </label>
+            <label class="dads-choice">
+                <input type="radio" name="denoise_mode" value="high">
+                <span class="dads-choice__body">
+                    <strong>高品質</strong>（Mel-Band Roformer / 約 600MB）
+                    <span class="dads-choice__note">処理時間 +1〜3分・メモリ 4GB 以上。楽器演奏や強い BGM が乗った音声向け。</span>
+                </span>
+            </label>
+        </div>
+    </fieldset>
+
+    <div class="dads-field">
+        <label class="dads-label" for="output-srt-name">出力するSRTのファイル名</label>
+        <input class="dads-input" type="text" id="output-srt-name" name="output_srt_name"
+               value="{{ default_srt_name }}">
+        <p class="dads-help">
+            クリップごとに名前を変えてください（同じ名前だと前の結果を上書きします）。
+            同じ名前で文字起こしCSVと話者分離のRTTMも保存されます。
+        </p>
+    </div>
+
+    <details class="dads-details">
+        <summary>詳細設定</summary>
+        <div class="dads-details__body dads-stack-sm">
+            <div class="dads-field">
+                <label class="dads-label" for="threshold">話者一致のしきい値（コサイン距離）</label>
+                <input class="dads-input dads-input--sm" type="number" id="threshold" name="threshold"
+                       value="0.5" step="0.05" min="0" max="1">
+                <p class="dads-help">この値より離れていると Unknown として扱います。</p>
+            </div>
+            <div class="dads-field">
+                <label class="dads-label" for="num-speakers">話者の人数</label>
+                <input class="dads-input dads-input--sm" type="text" id="num-speakers" name="num_speakers" value="">
+                <p class="dads-help">空欄なら自動で推定します。分かっている場合は入れると精度が上がります。</p>
+            </div>
+            <div class="dads-field">
+                <label class="dads-label" for="embedding-model">声紋の埋め込みモデル</label>
+                <input class="dads-input dads-input--sm" type="text" id="embedding-model" name="embedding_model"
+                       value="pyannote/embedding">
+            </div>
+            <div class="dads-field">
+                <label class="dads-label" for="whisper-backend">文字起こしエンジン</label>
+                <select class="dads-select dads-select--sm" id="whisper-backend" name="whisper_backend">
+                    <option value="auto" selected>自動（OSで判定）</option>
+                    <option value="mlx">Mac: mlx-whisper（Metal）</option>
+                    <option value="faster">Windows / Linux: faster-whisper（CUDA）</option>
+                </select>
+            </div>
+            <div class="dads-field">
+                <label class="dads-label" for="whisper-quality-select">Whisper モデルの品質</label>
+                <select class="dads-select dads-select--sm" id="whisper-quality-select" name="whisper_quality"
+                        onchange="toggleWhisperCustom()">
+                    <option value="large-v3" selected>高精度（large-v3）</option>
+                    <option value="medium">標準（medium）</option>
+                    <option value="small">高速（small）</option>
+                    <option value="__custom__">カスタム（モデルIDを直接入力）</option>
+                </select>
+            </div>
+            <div class="dads-field u-hidden" id="whisper-custom-wrap">
+                <label class="dads-label" for="whisper-custom-model">カスタム モデルID</label>
+                <input class="dads-input dads-input--sm" type="text" id="whisper-custom-model"
+                       name="whisper_custom_model" value="mlx-community/whisper-large-v3-mlx">
+                <p class="dads-help">エンジンに合わせて自動で変換されます。</p>
+            </div>
+            <div class="dads-field">
+                <label class="dads-label" for="pyannote-model-id">話者分離モデル</label>
+                <input class="dads-input dads-input--sm" type="text" id="pyannote-model-id" name="pyannote_model_id"
+                       value="pyannote/speaker-diarization-3.1">
+            </div>
+            <div class="dads-field">
+                <label class="dads-label" for="hf-token-override">Hugging Face トークン</label>
+                <input class="dads-input dads-input--sm" type="password" id="hf-token-override"
+                       name="hf_token_override" value="" autocomplete="off">
+                <p class="dads-help">入力すると .env の HF_TOKEN より優先します。保存はされません。</p>
+            </div>
+        </div>
+    </details>
+
+    <div>
+        <button class="dads-button dads-button--lg dads-button--block" type="submit">文字起こしを実行</button>
+    </div>
+</form>
+
+{# 文字起こしは裏で動く非同期ジョブ。ここはアップロードが終わるまでの表示で、
+   以降の進捗は partials/transcription_progress.html が出す #}
+<div id="transcription-indicator" class="htmx-indicator u-row u-mt-4">
+    <span class="dads-spinner" aria-hidden="true"></span>
+    <span>アップロード中…</span>
+</div>
+
+<div id="transcription-result" class="u-mt-4"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function toggleDbChoice() {
+        const value = document.querySelector('input[name="db_choice"]:checked').value;
+        document.getElementById('db-existing-block').classList.toggle('u-hidden', value !== 'existing');
+        document.getElementById('db-new-block').classList.toggle('u-hidden', value !== 'new');
+        document.getElementById('db-upload-block').classList.toggle('u-hidden', value === 'none');
+        if (value === 'existing') refreshDbSelect();
+    }
+
+    async function refreshDbSelect() {
+        const select = document.getElementById('db-existing-select');
+        if (!select) return;
+        const current = select.value;
+        try {
+            const res = await fetch('/api/databases/select-options?selected=' + encodeURIComponent(current));
+            if (!res.ok) return;
+            select.innerHTML = await res.text();
+            const hasDb = select.querySelectorAll('option').length > 1;
+            document.getElementById('db-empty-hint').classList.toggle('u-hidden', hasDb);
+        } catch (e) {
+            // 一覧の更新に失敗しても、選択済みの内容はそのまま使えるので画面は壊さない
+        }
+    }
+
+    // 管理画面を別タブで操作したときに、この画面の一覧も合わせる
+    if ('BroadcastChannel' in window) {
+        const channel = new BroadcastChannel('voice-databases');
+        channel.onmessage = (event) => {
+            if (event.data && event.data.type === 'changed') refreshDbSelect();
+        };
+    }
+    window.addEventListener('focus', refreshDbSelect);
+
+    function toggleWhisperCustom() {
+        const select = document.getElementById('whisper-quality-select');
+        const wrap = document.getElementById('whisper-custom-wrap');
+        if (!select || !wrap) return;
+        wrap.classList.toggle('u-hidden', select.value !== '__custom__');
+    }
+    toggleWhisperCustom();
+</script>
+{% endblock %}

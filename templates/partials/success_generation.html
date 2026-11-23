@@ -1,28 +1,14 @@
-<div class="bg-teal-50 border-l-4 border-teal-500 p-4 rounded-r shadow-sm animate-fade-in-up">
-    <div class="flex">
-        <div class="flex-shrink-0">
-            <svg class="h-5 w-5 text-teal-500" viewBox="0 0 20 20" fill="currentColor">
-                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
-            </svg>
-        </div>
-        <div class="ml-3">
-            <h3 class="text-sm font-medium text-teal-800">字幕生成完了！</h3>
-            <div class="mt-2 text-sm text-teal-700">
-                <p>ファイル <strong>{{ filename }}</strong> が生成されました（{{ count }} 件の字幕）。</p>
-            </div>
-            <div class="mt-4">
-                <a href="{{ download_url }}"
-                   class="text-sm font-medium text-teal-600 hover:text-teal-500 underline decoration-2 decoration-teal-300 hover:decoration-teal-500 transition-all">
-                    SRTファイルをダウンロード &rarr;
-                </a>
-            </div>
+<div class="dads-banner dads-banner--success dads-fade-in" role="status">
+    <svg class="dads-banner__icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1 14.4-4.2-4.2 1.4-1.4 2.8 2.8 5.6-5.6 1.4 1.4-7 7z"/>
+    </svg>
+    <div class="dads-banner__body">
+        <p class="dads-banner__title">字幕を生成しました</p>
+        <p><strong>{{ filename }}</strong>（{{ count }} 件の字幕）を作りました。</p>
+
+        <div class="dads-banner__actions">
+            <a class="dads-button" href="{{ download_url }}">SRTをダウンロード</a>
+            <a class="dads-button dads-button--text" href="/">最初からやり直す</a>
         </div>
     </div>
 </div>
-<style>
-    @keyframes fadeInUp {
-        from { opacity: 0; transform: translateY(10px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-    .animate-fade-in-up { animation: fadeInUp 0.5s ease-out forwards; }
-</style>

@@ -1,0 +1,37 @@
+{#
+  手順の現在位置を出す。
+
+  変数:
+    current … 1 / 2 / 3（今いる手順）
+    job_id  … Step 1 のジョブID（あれば Step 2 のリンクに付ける）
+
+  current より前の手順は「済」として、そのページへのリンクにする。
+#}
+{% set steps = [
+    (1, "文字起こし・話者分離", "/"),
+    (2, "マッチング", "/matching"),
+    (3, "字幕生成", "/generation")
+] %}
+<nav aria-label="作業の手順">
+    <ol class="dads-steps">
+        {% for number, label, url in steps %}
+        {% set is_current = (number == current) %}
+        {% set is_done = (number < current) %}
+        <li class="dads-steps__item
+                   {% if is_current %}dads-steps__item--current{% endif %}
+                   {% if is_done %}dads-steps__item--done{% endif %}">
+            <span class="dads-steps__mark" aria-hidden="true">{% if is_done %}✓{% else %}{{ number }}{% endif %}</span>
+            {% if is_current %}
+            <span class="dads-steps__label" aria-current="step">
+                <span class="u-visually-hidden">現在の手順: </span>Step {{ number }}　{{ label }}
+            </span>
+            {% else %}
+            <a class="dads-steps__label"
+               href="{% if number == 2 and job_id %}{{ url }}?job_id={{ job_id | urlencode }}{% else %}{{ url }}{% endif %}">
+                Step {{ number }}　{{ label }}
+            </a>
+            {% endif %}
+        </li>
+        {% endfor %}
+    </ol>
+</nav>

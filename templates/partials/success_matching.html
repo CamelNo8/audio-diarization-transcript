@@ -1,28 +1,21 @@
-<div class="bg-blue-50 border-l-4 border-blue-500 p-4 rounded-r shadow-sm animate-fade-in-up">
-    <div class="flex">
-        <div class="flex-shrink-0">
-            <svg class="h-5 w-5 text-blue-500" viewBox="0 0 20 20" fill="currentColor">
-                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
-            </svg>
-        </div>
-        <div class="ml-3">
-            <h3 class="text-sm font-medium text-blue-800">マッチング完了！</h3>
-            <div class="mt-2 text-sm text-blue-700">
-                <p>ファイル <strong>{{ filename }}</strong> が生成されました。</p>
-            </div>
-            <div class="mt-4">
-                <a href="{{ download_url }}"
-                   class="text-sm font-medium text-blue-600 hover:text-blue-500 underline decoration-2 decoration-blue-300 hover:decoration-blue-500 transition-all">
-                    CSVファイルをダウンロード &rarr;
-                </a>
-            </div>
+<div class="dads-banner dads-banner--success dads-fade-in" role="status">
+    <svg class="dads-banner__icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1 14.4-4.2-4.2 1.4-1.4 2.8 2.8 5.6-5.6 1.4 1.4-7 7z"/>
+    </svg>
+    <div class="dads-banner__body">
+        <p class="dads-banner__title">マッチングが完了しました</p>
+        <p>対応表 <strong>{{ filename }}</strong> を作りました。</p>
+        <p class="u-mt-2">
+            このあと対応表を開いて、時刻・話者・字幕の本文を確認してください。
+            直したファイルを Step 3 でアップロードすると字幕になります。
+        </p>
+
+        <div class="dads-banner__actions">
+            <a class="dads-button"
+               href="/generation?csv={{ filename | urlencode }}{% if job_id %}&job_id={{ job_id | urlencode }}{% endif %}">
+                Step 3 へ進む
+            </a>
+            <a class="dads-button dads-button--outline" href="{{ download_url }}">対応表をダウンロード</a>
         </div>
     </div>
 </div>
-<style>
-    @keyframes fadeInUp {
-        from { opacity: 0; transform: translateY(10px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-    .animate-fade-in-up { animation: fadeInUp 0.5s ease-out forwards; }
-</style>

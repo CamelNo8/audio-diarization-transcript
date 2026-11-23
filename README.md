@@ -199,13 +199,30 @@ uv run python app.py
 起動後、ブラウザで <http://127.0.0.1:8000> にアクセスします。
 （HTTPS への自動昇格で繋がらない場合は `http://` を手打ちしてください。）
 
-UI は横並び 3 カード構成：
+UI は**手順ごとに1画面**です。画面の上にあるステップ表示で現在位置が分かります。
 
-- **Step 1: 文字起こし & 話者分離** — 音声/動画 ＋ 声紋登録ファイル群（任意）から文字起こし SRT を生成（本文は `[speaker] text` 形式）。内部で `main.py` と同じ `AudioProcessor` を呼び出し、サイドカー CSV も `temp/` に保存（Unknown ラベル付け用）。詳細設定でしきい値・話者数・モデル名・HF_TOKEN・denoise を指定可能。
-- **Step 2: マッチング（対応表作成）** — 台本（`.csv`）または手動書き起こしテキスト（`.txt`）＋ Step 1 の SRT から、SentenceTransformer + FAISS + WLIS で対応表 CSV を生成（`src/subtitle/`）。`.txt` は `話者:本文` / `（ト書き）` / `# 場面` を解釈して台本 CSV に自動変換。
-- **Step 3: 字幕生成** — 編集済み対応表 CSV から字幕 SRT を生成（`src/subtitle/exporter.py`）。
+| URL | 画面 | 内容 |
+|---|---|---|
+| `/` | **Step 1: 文字起こし & 話者分離** | 音声/動画 ＋ 声紋登録ファイル群（任意）から文字起こし SRT を生成（本文は `[speaker] text` 形式）。内部で `main.py` と同じ `AudioProcessor` を呼び出し、サイドカー CSV と RTTM も `temp/` に保存。詳細設定でしきい値・話者数・モデル名・HF_TOKEN・denoise を指定可能。 |
+| `/matching?job_id=...` | **Step 2: マッチング（対応表作成）** | 台本（`.csv`）または手動書き起こしテキスト（`.txt`）＋ Step 1 の SRT から、SentenceTransformer + FAISS + WLIS で対応表 CSV を生成（`src/subtitle/`）。`.txt` は `話者:本文` / `（ト書き）` / `# 場面` を解釈して台本 CSV に自動変換。 |
+| `/generation?csv=...` | **Step 3: 字幕生成** | 編集済み対応表 CSV から字幕 SRT を生成（`src/subtitle/exporter.py`）。 |
+| `/databases` | 声紋データベース管理 | DB の作成・話者の追加・リネーム・トリミング・削除。 |
+| `/unknowns/{job_id}` | 未登録話者のラベル付け | Step 1 で Unknown になったクラスタに名前を付ける。 |
 
-Step 1 → Step 2 はジョブ ID で連携し、生成物は `temp/` 配下に保存されます（再起動しても残ります）。
+**手順のつなぎ方**: Step 1 の完了パネルにある「Step 2 へ進む」を押すと、ジョブ ID（`?job_id=`）を付けて
+Step 2 へ移ります。Step 2 はそのジョブの SRT を自動で使うので、SRT を選び直す必要はありません。
+同様に Step 2 の完了パネルから「Step 3 へ進む」で対応表のファイル名を引き継ぎます
+（対応表は人が編集する前提なので、Step 3 ではアップロードし直します）。
+生成物は `temp/` 配下に保存されます（再起動しても残ります）。
+
+### 画面デザイン
+
+[デジタル庁デザインシステム（DADS β版）](https://design.digital.go.jp/dads/)に合わせています。
+色・文字サイズ・部品の寸法は公式の HTML 実装例
+（[digital-go-jp/design-system-example-components-html](https://github.com/digital-go-jp/design-system-example-components-html)、MIT）
+の CSS の値を `static/css/dads.css` に書き写したものです。外部の CSS フレームワークは使っていません
+（プロキシ下やオフラインでも見た目が崩れないようにするため）。フォーカス表示の黄＋黒の二重枠は
+DADS が変更を禁じているので、そのまま使っています。
 
 #### Step 1 は非同期ジョブ
 
@@ -408,7 +425,12 @@ audio-diarization-transcript/
 │   └── spark/                  # DGX Spark へ推論をオフロードする API（Path 2）
 │       ├── server.py           #   Spark 側で動かす FastAPI サーバー
 │       └── client.py           #   PC 側から呼ぶクライアント
-├── templates/                  # Jinja2 テンプレート（partials/ は htmx の差し替え片）
+├── templates/                  # Jinja2 テンプレート
+│   ├── base.html               #   全画面の土台（ヘッダー・フッター）
+│   ├── step1.html / step2.html / step3.html   # 手順ごとの画面
+│   ├── databases.html / unknowns.html
+│   └── partials/               #   htmx の差し替え片・ステップ表示
+├── static/css/dads.css         # デジタル庁デザインシステムに合わせたCSS
 ├── tests/                      # pytest（重いモデルはモック）
 ├── tools/                      # 調査用の使い捨てスクリプト
 ├── temp/                       # 作業ディレクトリ（.gitignore 済み）

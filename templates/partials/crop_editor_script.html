@@ -29,9 +29,9 @@
         const ws = WaveSurfer.create({
             container: container,
             height: 80,
-            waveColor: '#c4b5fd',
-            progressColor: '#7c3aed',
-            cursorColor: '#7c3aed',
+            waveColor: '#9db7f9',
+            progressColor: '#0017c1',
+            cursorColor: '#0017c1',
             url: audioUrl,
             plugins: [regions],
         });
@@ -60,7 +60,7 @@
             duration = d;
             startInput.max = d.toFixed(2);
             endInput.max = d.toFixed(2);
-            regions.enableDragSelection({ color: 'rgba(124,58,237,0.15)' });
+            regions.enableDragSelection({ color: 'rgba(0,23,193,0.15)' });
         });
 
         // ドラッグで新しいリージョンができたら、古い方は捨てて常に1つだけにする
@@ -94,7 +94,7 @@
             } else {
                 region = regions.addRegion({
                     start: s, end: e,
-                    color: 'rgba(124,58,237,0.15)',
+                    color: 'rgba(0,23,193,0.15)',
                     drag: true, resize: true,
                 });
             }
@@ -116,11 +116,11 @@
     function toggleCropEditor(id, audioUrl) {
         const wrap = document.getElementById('crop-wrap-' + id);
         if (!wrap) return;
-        if (wrap.classList.contains('hidden')) {
-            wrap.classList.remove('hidden');
+        if (wrap.classList.contains('u-hidden')) {
+            wrap.classList.remove('u-hidden');
             if (!window.cropEditors[id]) initCropEditor(id, audioUrl);
         } else {
-            wrap.classList.add('hidden');
+            wrap.classList.add('u-hidden');
         }
     }
 

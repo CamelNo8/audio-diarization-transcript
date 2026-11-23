@@ -1,37 +1,28 @@
-<div class="space-y-2">
-    {% if databases %}
-        {% for db in databases %}
-        <div class="flex items-center justify-between bg-gray-50 border border-gray-200 rounded-lg p-3 hover:bg-purple-50 transition-colors">
-            <div>
-                <button type="button"
-                        hx-get="/api/databases/{{ db.name }}/speakers"
-                        hx-target="#db-detail"
-                        hx-swap="innerHTML"
-                        class="text-left">
-                    <span class="font-medium text-gray-900">{{ db.name }}</span>
-                    <span class="text-xs text-gray-500 ml-2">{{ db.speaker_count }} 話者</span>
-                </button>
-            </div>
-            <div class="flex items-center gap-3 whitespace-nowrap">
-                <button type="button"
-                        hx-get="/api/databases/{{ db.name }}/speakers"
-                        hx-target="#db-detail"
-                        hx-swap="innerHTML"
-                        class="text-xs text-purple-600 hover:text-purple-700 underline">
-                    開く →
-                </button>
-                <button type="button"
-                        hx-delete="/api/databases/{{ db.name }}"
-                        hx-target="#db-list"
-                        hx-swap="innerHTML"
-                        hx-confirm="DB「{{ db.name }}」を削除しますか？中の話者（{{ db.speaker_count }}名）ごと voice_databases/.trash/ へ退避されます（あとから手で戻せます）。"
-                        class="text-xs text-red-600 hover:text-red-800 underline">
-                    削除
-                </button>
-            </div>
+{% if databases %}
+<ul class="dads-list">
+    {% for db in databases %}
+    <li class="dads-item">
+        <div class="dads-item__main">
+            <button class="dads-button dads-button--text"
+                    type="button"
+                    hx-get="/api/databases/{{ db.name }}/speakers"
+                    hx-target="#db-detail"
+                    hx-swap="innerHTML">
+                {{ db.name }}
+            </button>
+            <span class="u-caption u-sub">{{ db.speaker_count }} 話者</span>
         </div>
-        {% endfor %}
-    {% else %}
-        <p class="text-sm text-gray-400 italic">DB がまだありません。下のフォームから作成してください。</p>
-    {% endif %}
-</div>
+        <button class="dads-button dads-button--outline dads-button--sm"
+                type="button"
+                hx-delete="/api/databases/{{ db.name }}"
+                hx-target="#db-list"
+                hx-swap="innerHTML"
+                hx-confirm="データベース「{{ db.name }}」を削除しますか？中の話者（{{ db.speaker_count }}名）ごと voice_databases/.trash/ へ退避します（あとから手で戻せます）。">
+            削除
+        </button>
+    </li>
+    {% endfor %}
+</ul>
+{% else %}
+<p class="u-sub">データベースがまだありません。下のフォームから作成してください。</p>
+{% endif %}

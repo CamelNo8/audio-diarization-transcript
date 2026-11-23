@@ -153,7 +153,7 @@ class Test進捗の問い合わせ:
         response = client.get(f"/process/transcription/{job_id}/status")
 
         assert response.status_code == 200
-        assert "文字起こし完了" in response.text
+        assert "文字起こしが完了しました" in response.text
         assert "hx-trigger" not in response.text, "完了断片にポーリングを残さないこと"
         assert "/download/結果.srt" in response.text
 

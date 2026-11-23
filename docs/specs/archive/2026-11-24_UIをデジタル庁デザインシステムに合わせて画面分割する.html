@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>仕様書: UIをデジタル庁デザインシステムに合わせて画面分割する</title>
+<style>
+  :root {
+    --blue-900: #0017c1; --blue-1000: #00118f; --blue-50: #e8f1fe; --blue-100: #d9e6ff;
+    --gray-50: #f2f2f2; --gray-100: #e6e6e6; --gray-200: #cccccc; --gray-536: #767676;
+    --gray-800: #333333; --gray-900: #1a1a1a;
+    --green-800: #197a4b; --green-50: #e6f5ec; --red-800: #ec0000; --yellow-900: #927200;
+    --yellow-300: #ffd43d;
+  }
+  body {
+    font-family: "Noto Sans JP", "Hiragino Sans", sans-serif;
+    color: var(--gray-800); line-height: 1.7; letter-spacing: 0.02em;
+    margin: 0; padding: 0 16px 64px; background: #fff;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  header.page { border-bottom: 4px solid var(--blue-900); padding: 32px 0 16px; margin-bottom: 32px; }
+  h1 { font-size: 32px; line-height: 1.5; letter-spacing: 0.01em; margin: 0 0 8px; color: var(--gray-900); }
+  .meta { color: var(--gray-536); font-size: 14px; }
+  h2 { font-size: 24px; line-height: 1.5; margin: 48px 0 16px; padding-left: 12px; border-left: 6px solid var(--blue-900); }
+  h3 { font-size: 18px; line-height: 1.6; margin: 32px 0 8px; }
+  p, li { font-size: 16px; }
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 15px; }
+  th, td { border: 1px solid var(--gray-200); padding: 8px 12px; text-align: left; vertical-align: top; }
+  th { background: var(--gray-50); font-weight: 700; }
+  code { background: var(--gray-50); padding: 2px 6px; border-radius: 4px; font-family: "Noto Sans Mono", monospace; font-size: 14px; }
+  pre { background: var(--gray-50); padding: 16px; border-radius: 8px; overflow-x: auto; font-size: 14px; line-height: 1.5; }
+  pre code { background: none; padding: 0; }
+  .banner { border: 3px solid var(--blue-900); border-radius: 12px; padding: 16px 24px; margin: 24px 0; }
+  .banner.info { border-color: var(--blue-900); }
+  .banner.warn { border-color: var(--yellow-900); }
+  .banner.note { border-color: var(--gray-536); }
+  .banner h3 { margin-top: 0; }
+  .status { display: inline-block; font-size: 13px; font-weight: 700; padding: 2px 10px; border-radius: 999px; border: 2px solid; }
+  .status.todo { color: var(--gray-536); border-color: var(--gray-536); }
+  .status.doing { color: var(--blue-900); border-color: var(--blue-900); background: var(--blue-50); }
+  .status.done { color: var(--green-800); border-color: var(--green-800); background: var(--green-50); }
+  .phase { margin: 32px 0; border: 1px solid var(--gray-200); border-radius: 12px; overflow: hidden; }
+  .phase > h3 { margin: 0; padding: 12px 16px; background: var(--gray-50); border-bottom: 1px solid var(--gray-200); font-size: 17px; }
+  .phase table { margin: 0; border: none; }
+  .phase table th:first-child, .phase table td:first-child { width: 90px; }
+  .phase table th:last-child, .phase table td:last-child { width: 110px; }
+  .swatch { display: inline-block; width: 16px; height: 16px; border: 1px solid var(--gray-200); vertical-align: -3px; margin-right: 6px; border-radius: 3px; }
+  .out { color: var(--gray-536); }
+  footer.page { margin-top: 64px; padding-top: 16px; border-top: 1px solid var(--gray-200); color: var(--gray-536); font-size: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="page">
+  <h1>UIをデジタル庁デザインシステムに合わせて画面分割する</h1>
+  <p class="meta">作成日: 2026-11-24 ／ 状態: <span class="status done">完了</span>（2026-11-24 実装・確認ずみ） ／ 対象: Web UI（<code>templates/</code>, <code>src/web/</code>）</p>
+</header>
+
+<h2>1. 目的と背景</h2>
+<p>
+今の Web UI は、トップページ（<code>/</code>）に Step 1（文字起こし＆話者分離）・Step 2（マッチング）・Step 3（字幕生成）の
+3つのカードを横並びで置いている。1画面に全部あるため、次の問題がある。
+</p>
+<ul>
+  <li>画面の幅を3分割しているので、1つの手順に使える領域が狭い（Step 1 は設定項目が多く、縦に長い）。</li>
+  <li>今どの手順にいるのかが分かりにくい。まだ実行できない Step 2 のボタンも常に見えている。</li>
+  <li>見た目は Tailwind の既定色（紫・青・緑のグラデーション）で、配色・文字サイズ・フォーカス表示に根拠がない。</li>
+</ul>
+<p>
+そこで <strong>デジタル庁デザインシステム（DADS β版）</strong>に合わせて見た目を作り直し、<strong>Step 1〜3 をそれぞれ別の画面</strong>にする。
+手順が1画面1つになるので、画面の上に「今は 2 / 3 番目」と出せるようになり、入力欄も広く取れる。
+</p>
+
+<h2>2. 決定事項（確認済み）</h2>
+<table>
+  <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+  <tr>
+    <td>トップ画面</td>
+    <td><code>/</code> をそのまま Step 1 にする</td>
+    <td>概要ページを挟まない。クリック数が最小。手順の移動は画面上部のステップ表示で行う。</td>
+  </tr>
+  <tr>
+    <td>CSS の持ち方</td>
+    <td>自前の CSS 1枚（<code>static/css/dads.css</code>）。Tailwind CDN は外す</td>
+    <td>DADS の数値をそのまま書ける。大学プロキシや Spark 上でも外部CDNに依存せず崩れない。</td>
+  </tr>
+  <tr>
+    <td>対象画面</td>
+    <td>Step 1〜3 ＋ 声紋DB管理（<code>/databases</code>）＋ ラベル付け（<code>/unknowns</code>）の全画面</td>
+    <td>一部だけ新デザインだと見た目が混ざるため。ただし下記フェーズに分けて進める。</td>
+  </tr>
+  <tr>
+    <td>Step 1 完了後</td>
+    <td>完了画面に「Step 2 へ進む」ボタンを出す（自動遷移しない）</td>
+    <td>SRT のダウンロードと未登録話者のラベル付けを、先へ進む前に確認できるようにする。</td>
+  </tr>
+</table>
+
+<h2>3. 画面構成と URL 設計</h2>
+<p>処理を実行する POST の口（<code>/process/*</code>）は今のまま変えない。<strong>画面を表示する GET を追加する</strong>だけにする。</p>
+<table>
+  <tr><th>URL</th><th>メソッド</th><th>内容</th><th>変更</th></tr>
+  <tr><td><code>/</code></td><td>GET</td><td>Step 1: 文字起こし＆話者分離</td><td>中身を Step 1 だけに</td></tr>
+  <tr><td><code>/matching</code></td><td>GET</td><td>Step 2: マッチング（対応表作成）。<code>?job_id=</code> で Step 1 の結果を引き継ぐ</td><td><strong>新規</strong></td></tr>
+  <tr><td><code>/generation</code></td><td>GET</td><td>Step 3: 字幕生成。<code>?csv=</code> で Step 2 の出力名を案内に出す</td><td><strong>新規</strong></td></tr>
+  <tr><td><code>/process/transcription</code></td><td>POST</td><td>文字起こしの受付（非同期ジョブ）</td><td>なし</td></tr>
+  <tr><td><code>/process/transcription/{job_id}/status</code></td><td>GET</td><td>進捗パネル（htmx が2秒ごとに取得）</td><td>なし</td></tr>
+  <tr><td><code>/process/matching</code></td><td>POST</td><td>マッチング実行</td><td>なし</td></tr>
+  <tr><td><code>/process/generation</code></td><td>POST</td><td>字幕生成</td><td>なし</td></tr>
+  <tr><td><code>/databases</code>, <code>/api/databases/*</code></td><td>GET/POST/DELETE</td><td>声紋DB管理</td><td>見た目のみ</td></tr>
+  <tr><td><code>/unknowns/{job_id}</code></td><td>GET/POST</td><td>未登録話者のラベル付け</td><td>見た目のみ</td></tr>
+  <tr><td><code>/download/{filename}</code></td><td>GET</td><td>生成物のダウンロード</td><td>なし</td></tr>
+  <tr><td><code>/static/*</code></td><td>GET</td><td>CSS などの静的ファイル</td><td><strong>新規</strong></td></tr>
+</table>
+
+<h3>手順の間のデータの受け渡し</h3>
+<p>
+今は「1画面に全部ある」ことを利用して、Step 1 の完了時に JavaScript で Step 2 の隠しフィールド
+（<code>#step2-job-id</code>）へ <code>job_id</code> を書き込んでいる。画面を分けるとこれは使えないので、<strong>URL のクエリパラメータで渡す</strong>。
+</p>
+<pre><code>Step 1 実行 → 完了パネルに「Step 2 へ進む」
+                  ↓ /matching?job_id=20261124-153012-ab12
+Step 2 画面      job_id を隠しフィールドに入れ、Step 1 の SRT 名を画面に表示
+                 （job_id が無ければ「Step 1 を先に実行してください」と案内し、実行ボタンは押せない）
+Step 2 実行 → 完了パネルに「Step 3 へ進む」
+                  ↓ /generation?csv=対応表.csv
+Step 3 画面      「対応表.csv をダウンロードして編集し、ここにアップロード」と案内を出す</code></pre>
+<div class="banner note">
+  <h3>Step 3 はファイルのアップロードのまま</h3>
+  <p>
+  対応表CSVは「人が中身を直してから字幕にする」のが前提なので、Step 2 の出力を自動で渡すことはしない。
+  Step 3 の画面には、Step 2 で作ったファイル名を案内として出すだけにする。
+  </p>
+</div>
+
+<h2>4. 使うデザインの値（DADS）</h2>
+<p>
+DADS の配布物は Figma のデザインデータ（CC BY 4.0）が原典で、サイトの色のページも「実際の色データは Figma を参照」と書いている。
+下の数値は <strong>公式の HTML 実装例リポジトリ（<code>digital-go-jp/design-system-example-components-html</code>、MIT ライセンス）の CSS から取った実測値</strong>で、
+これを自前の CSS に書き写して使う。公式の CSS ファイルそのものをコピーはしない（著作権表示の管理が増えるため）。
+</p>
+
+<h3>色</h3>
+<table>
+  <tr><th>用途</th><th>DADS のトークン名</th><th>値</th></tr>
+  <tr><td>プライマリ（ボタン・リンク）</td><td>key-900 / blue-900</td><td><span class="swatch" style="background:#0017c1"></span>#0017c1</td></tr>
+  <tr><td>プライマリ ホバー</td><td>blue-1000</td><td><span class="swatch" style="background:#00118f"></span>#00118f</td></tr>
+  <tr><td>プライマリ 押下</td><td>blue-1200</td><td><span class="swatch" style="background:#000060"></span>#000060</td></tr>
+  <tr><td>本文テキスト</td><td>solid-gray-800</td><td><span class="swatch" style="background:#333333"></span>#333333</td></tr>
+  <tr><td>入力欄の文字</td><td>solid-gray-900</td><td><span class="swatch" style="background:#1a1a1a"></span>#1a1a1a</td></tr>
+  <tr><td>入力欄の枠線</td><td>solid-gray-600</td><td><span class="swatch" style="background:#666666"></span>#666666</td></tr>
+  <tr><td>補助テキスト（白地で4.5:1）</td><td>solid-gray-536</td><td><span class="swatch" style="background:#767676"></span>#767676</td></tr>
+  <tr><td>薄い背景・無効の背景</td><td>solid-gray-50</td><td><span class="swatch" style="background:#f2f2f2"></span>#f2f2f2</td></tr>
+  <tr><td>無効の枠線・文字</td><td>gray-300 / gray-420</td><td><span class="swatch" style="background:#b3b3b3"></span>#b3b3b3 ／ <span class="swatch" style="background:#949494"></span>#949494</td></tr>
+  <tr><td>成功</td><td>success-2 / green-800</td><td><span class="swatch" style="background:#197a4b"></span>#197a4b（淡色 <span class="swatch" style="background:#e6f5ec"></span>#e6f5ec）</td></tr>
+  <tr><td>エラー</td><td>error-1 / red-800</td><td><span class="swatch" style="background:#ec0000"></span>#ec0000</td></tr>
+  <tr><td>警告</td><td>warning-yellow-2</td><td><span class="swatch" style="background:#927200"></span>#927200（チップ <span class="swatch" style="background:#ffc700"></span>#ffc700）</td></tr>
+  <tr><td>フォーカス表示</td><td>black + yellow-300</td><td>outline 4px <span class="swatch" style="background:#000"></span>#000000 ＋ 外側に 2px <span class="swatch" style="background:#ffd43d"></span>#ffd43d</td></tr>
+</table>
+<div class="banner warn">
+  <h3>フォーカス表示は変えない</h3>
+  <p>
+  DADS は「フォーカスインジケーターは黄色と黒の二重構造で、いかなる場合も変更してはいけない」と明記している。
+  今の Tailwind の <code>focus:ring-2 focus:ring-purple-400</code> は全部これに置き換える。
+  </p>
+</div>
+
+<h3>文字と間隔</h3>
+<ul>
+  <li>フォント: <code>"Noto Sans JP", sans-serif</code>（等幅は <code>"Noto Sans Mono"</code>）。ウェイトは 400 と 700 の2つだけ。</li>
+  <li>本文: 16px / 行間 1.7 / 字間 0.02em。<strong>14px 未満は使わない</strong>（今の UI は <code>text-xs</code>(12px) を多用しているので、全部 14px 以上に直す）。</li>
+  <li>見出し: 32px/1.5、24px/1.5、20px/1.5、18px/1.6（いずれも bold、字間 0.01〜0.02em）。</li>
+  <li>間隔: 8px を基準にし、8 / 16 / 24 / 32 / 40 / 64px を使う。</li>
+  <li>ブレークポイント: 768px（これ未満をモバイル扱い）。1カラムに落とす。</li>
+  <li>コンテンツの最大幅は DADS に規定が無いため、本文が読める幅として <strong>840px</strong>（Step の画面）/ <strong>1200px</strong>（DB管理の一覧）を自分で決める。</li>
+</ul>
+
+<h3>部品の寸法</h3>
+<table>
+  <tr><th>部品</th><th>仕様</th></tr>
+  <tr><td>ボタン Large</td><td>最小 136×56px、角丸 8px、padding 12px 16px、16px bold</td></tr>
+  <tr><td>ボタン Medium</td><td>最小 96×48px、角丸 8px、padding 8px 16px</td></tr>
+  <tr><td>ボタン Small</td><td>最小 80×36px、角丸 6px。<code>::after</code> で 44px のタップ領域を確保</td></tr>
+  <tr><td>塗りボタン</td><td>背景 #0017c1 / 文字 白。枠は <code>4px double transparent</code>（ホバーで下線）</td></tr>
+  <tr><td>アウトラインボタン</td><td>枠 1px / 背景 白 / 文字 #0017c1。ホバー背景 #c5d7fb</td></tr>
+  <tr><td>テキストボタン</td><td>背景なし・下線あり。ホバー背景 #e8f1fe</td></tr>
+  <tr><td>入力欄</td><td>高さ 40 / 48 / 56px、padding 12px 16px、枠 1px #666666、角丸 8px。エラー時は枠 #ec0000 ＋ 文字 #ec0000 のエラー文（上マージン 8px）</td></tr>
+  <tr><td>ファイル選択</td><td>通常は背景 #f2f2f2 / 枠 #767676。ドラッグ中は背景 #e6f5ec / 枠 #259d63</td></tr>
+  <tr><td>通知バナー</td><td>背景 白、枠 3px solid（種類ごとの色）、角丸 12px。見出し 20px bold（768px以上）、padding 24px</td></tr>
+</table>
+<p class="out">
+  ヘッダー・パンくず・ステップナビゲーションは、公式の HTML 実装例が「提供予定」で CSS が無い。
+  ページの画像の説明（完了は灰色の丸＋チェック、現在は黒塗りの二重丸、未完了は白い丸）に合わせて自分で作る。
+</p>
+
+<h2>5. ファイル構成</h2>
+<pre><code>static/
+└── css/
+    └── dads.css              # 新規: DADS のトークン＋部品のCSS（1枚）
+
+templates/
+├── base.html                 # 新規: 全画面の土台（head・ヘッダー・フッター）
+├── step1.html                # 新規: index.html の Step 1 部分を移す
+├── step2.html                # 新規
+├── step3.html                # 新規
+├── index.html                # 削除（step1〜3 に分割。削除前に確認を取る）
+├── databases.html            # 変更: base.html を継承し DADS 化
+├── unknowns.html             # 変更: 同上
+└── partials/
+    ├── step_nav.html         # 新規: 1→2→3 のステップ表示
+    ├── error.html            # 変更: 通知バナー（error）に
+    ├── success_transcription.html  # 変更: 通知バナー（success）＋「Step 2 へ」ボタン
+    ├── success_matching.html       # 変更: 通知バナー（success）＋「Step 3 へ」ボタン
+    ├── success_generation.html     # 変更: 通知バナー（success）
+    ├── transcription_progress.html # 変更: 通知バナー（info）
+    ├── unknowns_list.html / db_list.html / db_speakers.html / db_select_options.html
+    └── crop_editor.html / crop_editor_script.html   # 変更: 見た目のみ
+
+src/
+├── config.py                 # 変更: STATIC_DIR を追加
+└── web/
+    ├── application.py        # 変更: /static をマウント
+    └── routes/pages.py       # 変更: GET /matching, GET /generation を追加
+</code></pre>
+
+<h3>すでにある部品を使い回すところ</h3>
+<ul>
+  <li><code>jobs.load_job()</code> … Step 2 の画面で <code>job_id</code> から Step 1 の SRT 名（<code>srt_filename</code>）を取り出す。新しい関数は作らない。</li>
+  <li><code>matching.py</code> の <code>_resolve_step1_srt()</code> … 実行時の解決は今のまま。画面表示では使わない（存在しない job_id でも画面は出す）。</li>
+  <li><code>templating.templates</code> / <code>render_error()</code> … そのまま使う。<code>render_error</code> が返す断片の見た目だけ変える。</li>
+  <li><code>is_safe_output_name()</code> … 出力ファイル名の検証。変更しない。</li>
+</ul>
+
+<h2>6. ToDo</h2>
+
+<div class="phase">
+  <h3>フェーズ 1: デザインの土台</h3>
+  <table>
+    <tr><th>番号</th><th>やること</th><th>状態</th></tr>
+    <tr><td>1-1</td><td><code>static/css/dads.css</code> にトークンを定義する（色・フォント・文字サイズ・間隔・角丸・影・フォーカス）</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>1-2</td><td>同ファイルに部品のCSSを書く（ボタン3種、入力、セレクト、ファイル選択、通知バナー4種、カード、ステップナビ、ヘッダー、詳細設定の開閉）</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>1-3</td><td><code>src/config.py</code> に <code>STATIC_DIR</code> を追加する</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>1-4</td><td><strong>テストを先に書く</strong>: <code>GET /static/css/dads.css</code> が 200 を返す</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>1-5</td><td><code>application.py</code> で <code>/static</code> をマウントしてテストを通す</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>1-6</td><td><code>templates/base.html</code> を作る（Noto Sans JP、dads.css、htmx、ヘッダー、フッター）</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>1-7</td><td><code>templates/partials/step_nav.html</code> を作る（現在の手順・完了済み・未完了を出し分ける）</td><td><span class="status done">完了</span></td></tr>
+  </table>
+</div>
+
+<div class="phase">
+  <h3>フェーズ 2: Step 1〜3 を別画面にする</h3>
+  <table>
+    <tr><th>番号</th><th>やること</th><th>状態</th></tr>
+    <tr><td>2-1</td><td><strong>テストを先に書く</strong>: <code>GET /</code> に Step 1 の見出しが出る／<code>GET /matching</code> が 200／<code>GET /generation</code> が 200／<code>job_id</code> 無しの <code>/matching</code> に「Step 1 を先に」の案内が出る／<code>job_id</code> ありで Step 1 の SRT 名が出る</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>2-2</td><td><code>pages.py</code> に <code>GET /matching</code>・<code>GET /generation</code> を追加してテストを通す</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>2-3</td><td><code>step1.html</code> を作る（音声ファイル・声紋DB・背景音除去・出力名・詳細設定・実行ボタン）</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>2-4</td><td><code>step2.html</code> を作る（台本/書き起こしテキスト・Step 1 の SRT の表示・出力名）</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>2-5</td><td><code>step3.html</code> を作る（編集済み対応表CSV・出力名）</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>2-6</td><td><code>success_transcription.html</code> に「Step 2 へ進む」、<code>success_matching.html</code> に「Step 3 へ進む」を付ける。Step 1 完了時の JavaScript（隠しフィールド書き込み）は不要になるので消す</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>2-7</td><td><code>index.html</code> を削除する（<strong>実行前に確認を取る</strong>）</td><td><span class="status done">完了</span></td></tr>
+  </table>
+</div>
+
+<div class="phase">
+  <h3>フェーズ 3: 共通パーツを通知バナーにする</h3>
+  <table>
+    <tr><th>番号</th><th>やること</th><th>状態</th></tr>
+    <tr><td>3-1</td><td><code>error.html</code> を通知バナー（error）に置き換える</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>3-2</td><td><code>success_transcription / matching / generation.html</code> を通知バナー（success）に置き換える</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>3-3</td><td><code>transcription_progress.html</code> を通知バナー（info）に置き換える。htmx のポーリングの仕組みは変えない</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>3-4</td><td>各ファイルに重複している <code>@keyframes fadeInUp</code> の <code>&lt;style&gt;</code> を消し、<code>dads.css</code> に1つだけ置く</td><td><span class="status done">完了</span></td></tr>
+  </table>
+</div>
+
+<div class="phase">
+  <h3>フェーズ 4: 残りの画面</h3>
+  <table>
+    <tr><th>番号</th><th>やること</th><th>状態</th></tr>
+    <tr><td>4-1</td><td><code>databases.html</code> を <code>base.html</code> 継承に直し、DADS 化する</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>4-2</td><td><code>db_list.html</code>・<code>db_speakers.html</code>・<code>db_select_options.html</code> を DADS 化する</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>4-3</td><td><code>unknowns.html</code>・<code>unknowns_list.html</code> を DADS 化する</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>4-4</td><td><code>crop_editor.html</code>・<code>crop_editor_script.html</code> の見た目を DADS 化する（波形編集の処理は変えない）</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>4-5</td><td>全テンプレートから Tailwind CDN の読み込みと <code>class="..."</code> の Tailwind クラスを消し切る</td><td><span class="status done">完了</span></td></tr>
+  </table>
+</div>
+
+<div class="phase">
+  <h3>フェーズ 5: 確認と記録</h3>
+  <table>
+    <tr><th>番号</th><th>やること</th><th>状態</th></tr>
+    <tr><td>5-1</td><td><code>uv run pytest</code> が全部通る（既存 458 テストを壊していないこと）</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>5-2</td><td><code>uv run ruff check</code> が通る</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>5-3</td><td>ブラウザで <code>/</code> → <code>/matching</code> → <code>/generation</code> → <code>/databases</code> を開き、見た目と遷移を確認する（画面の写真を残す）</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>5-4</td><td>キーボードの Tab だけで Step 1 のフォームを操作し、フォーカスの黄＋黒の枠が全部の部品で出ることを確認する</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>5-5</td><td>幅 375px（スマホ相当）で 1カラムに落ちること・横スクロールが出ないことを確認する</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>5-6</td><td>README の Web UI の説明（「横並び 3 カード構成」の記述と URL）を実態に合わせて直す</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>5-7</td><td>この仕様書を <code>docs/specs/archive/</code> へ移す</td><td><span class="status done">完了</span></td></tr>
+  </table>
+</div>
+
+<h2>7. テストの方針</h2>
+<p>
+見た目（CSS・HTML の体裁）は自動テストの対象にしない。代わりに<strong>画面が出ること・手順の引き継ぎが効くこと</strong>をテストする。
+テストは <code>tests/test_web_routes.py</code> に足す（既存の <code>client</code> フィクスチャを使う）。
+</p>
+<table>
+  <tr><th>種別</th><th>テスト</th></tr>
+  <tr><td>正常系</td><td><code>GET /</code> に Step 1 の見出しが含まれる／<code>GET /matching</code>・<code>GET /generation</code> が 200 を返す</td></tr>
+  <tr><td>正常系</td><td><code>GET /matching?job_id=&lt;完了済みジョブ&gt;</code> に Step 1 の SRT ファイル名が含まれる</td></tr>
+  <tr><td>境界値</td><td><code>GET /matching</code>（<code>job_id</code> なし）で「Step 1 を先に実行」の案内が出て、実行ボタンが <code>disabled</code> になっている</td></tr>
+  <tr><td>異常系</td><td><code>GET /matching?job_id=存在しないID</code> でも 500 にならず、案内付きで画面が出る</td></tr>
+  <tr><td>異常系</td><td><code>GET /matching?job_id=../../etc/passwd</code> で例外にならない（<code>jobs.load_job</code> が <code>ValueError</code> を投げるので、画面側で受け止める）</td></tr>
+  <tr><td>正常系</td><td><code>GET /static/css/dads.css</code> が 200 を返す</td></tr>
+</table>
+
+<h2>8. 今回やらないこと</h2>
+<ul>
+  <li>処理の中身（文字起こし・話者照合・マッチング・字幕生成）のロジックは一切変えない。</li>
+  <li>Step 2 の出力を Step 3 へ自動で渡す機能は作らない（対応表は人が編集する前提のため）。</li>
+  <li>DADS の公式 CSS / npm パッケージ / Tailwind テーマプラグインの取り込みはしない（自前 CSS 1枚にする決定のため）。</li>
+  <li>ダークモード、多言語対応、ログイン機能は作らない。</li>
+  <li>先のセキュリティ確認で挙げた3点（<code>torch.load</code> のパッチ範囲、Spark API の <code>0.0.0.0</code> の例、<code>spark-up.sh</code> のIP直書き）はこの作業に含めない。別の作業として扱う。</li>
+</ul>
+
+<footer class="page">
+  <p>
+  出典: デジタル庁デザインシステム β版 v2.18.3（<code>design.digital.go.jp/dads/</code>、Figma データは CC BY 4.0）／
+  公式 HTML 実装例 <code>digital-go-jp/design-system-example-components-html</code>（MIT）の CSS 実測値。
+  色の値は Figma が原典のため、公式サイトの表示と差異があれば Figma 側を正とする。
+  </p>
+</footer>
+
+</div>
+</body>
+</html>

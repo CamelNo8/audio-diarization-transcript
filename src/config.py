@@ -23,6 +23,9 @@ CLUSTERS_ROOT = TEMP_DIR / "clusters"
 #: Jinja2 テンプレートの置き場
 TEMPLATES_DIR = PROJECT_ROOT / "templates"
 
+#: CSS などの静的ファイルの置き場（Web UI が /static として配信する）
+STATIC_DIR = PROJECT_ROOT / "static"
+
 #: 声紋データベースの既定ルート（環境変数 VOICE_DB_ROOT で上書き可）
 DEFAULT_VOICE_DB_ROOT = PROJECT_ROOT / "voice_databases"
 

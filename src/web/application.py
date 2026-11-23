@@ -7,7 +7,9 @@
 from __future__ import annotations
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
+from src.config import STATIC_DIR
 from src.web import jobs, storage
 from src.web.routes import (
     databases,
@@ -28,6 +30,8 @@ def create_app() -> FastAPI:
     jobs.CLUSTERS_ROOT.mkdir(exist_ok=True)
 
     app = FastAPI(title=APP_TITLE)
+    # CSS は外部CDNに頼らず自分で配信する（プロキシ下やオフラインでも崩れないため）
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
     for module in (pages, transcription, matching, generation, databases, unknowns):
         app.include_router(module.router)
     return app

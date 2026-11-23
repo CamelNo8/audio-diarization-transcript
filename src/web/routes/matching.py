@@ -71,6 +71,8 @@ async def process_matching(
             {
                 "filename": output_path.name,
                 "download_url": f"/download/{output_path.name}",
+                # 手順の表示で Step 1 へ戻れるようにするため引き継ぐ
+                "job_id": job_id,
             },
         )
 

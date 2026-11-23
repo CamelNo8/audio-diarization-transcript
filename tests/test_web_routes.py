@@ -121,3 +121,76 @@ class Testダウンロード:
 
         assert response.status_code == 200
         assert response.content == b"1\n"
+
+
+class Test静的ファイル:
+    def test_スタイルシートが配信される(self, client):
+        response = client.get("/static/css/dads.css")
+
+        assert response.status_code == 200
+        assert "text/css" in response.headers["content-type"]
+
+    def test_スタイルシートにDADSのプライマリ色が含まれる(self, client):
+        response = client.get("/static/css/dads.css")
+
+        assert "#0017c1" in response.text
+
+
+class Test手順ごとの画面:
+    def test_トップにStep1の見出しが出る(self, client):
+        response = client.get("/")
+
+        assert response.status_code == 200
+        assert "文字起こし" in response.text
+
+    def test_マッチング画面が表示される(self, client):
+        assert client.get("/matching").status_code == 200
+
+    def test_字幕生成画面が表示される(self, client):
+        assert client.get("/generation").status_code == 200
+
+    def test_ジョブIDが無いマッチング画面はStep1を促す(self, client):
+        response = client.get("/matching")
+
+        assert "Step 1" in response.text
+        assert "disabled" in response.text
+
+    def test_ジョブIDを渡すとStep1の出力名が表示される(
+        self, client, ジョブ保存先, 作業ディレクトリ
+    ):
+        import src.web.jobs as jobs
+
+        srt_path = 作業ディレクトリ / "転スラ_hard.srt"
+        srt_path.write_text("1\n", encoding="utf-8")
+        jobs.save_job(
+            "test-job",
+            {
+                "job_id": "test-job",
+                "status": jobs.STATUS_DONE,
+                "srt_path": str(srt_path),
+                "srt_filename": srt_path.name,
+            },
+        )
+
+        response = client.get("/matching?job_id=test-job")
+
+        assert response.status_code == 200
+        assert "転スラ_hard.srt" in response.text
+
+    def test_存在しないジョブIDでも画面は出る(self, client, ジョブ保存先):
+        response = client.get("/matching?job_id=does-not-exist")
+
+        assert response.status_code == 200
+        assert "Step 1" in response.text
+
+    @pytest.mark.parametrize("job_id", ["../../etc/passwd", "a/b", "."])
+    def test_不正なジョブIDでもエラーにならない(self, client, ジョブ保存先, job_id):
+        response = client.get("/matching", params={"job_id": job_id})
+
+        assert response.status_code == 200
+
+    def test_字幕生成画面はStep2の出力名を案内に出す(self, client):
+        response = client.get("/generation", params={"csv": "対応表.csv"})
+
+        assert response.status_code == 200
+        assert "対応表.csv" in response.text

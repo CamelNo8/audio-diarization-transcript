@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Step 2 マッチング ｜ 音声 → 字幕 統合アプリ{% endblock %}
+
+{% block content %}
+{% set current = 2 %}
+{% include "partials/step_nav.html" %}
+
+<h1 class="dads-page-title">Step 2　マッチング（対応表の作成）</h1>
+<p class="dads-lead">
+    台本または手で書き起こしたテキストと、Step 1 の文字起こしSRTを突き合わせて、
+    どの台詞が何時何分の発話にあたるかの対応表（CSV）を作ります。
+</p>
+
+{% if not stt_filename %}
+<div class="dads-banner dads-banner--warning u-mb-3" role="status">
+    <svg class="dads-banner__icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M12 2 1 21h22L12 2zm0 5 7.5 13h-15L12 7zm-1 4v4h2v-4h-2zm0 5v2h2v-2h-2z"/>
+    </svg>
+    <div class="dads-banner__body">
+        <p class="dads-banner__title">Step 1 を先に実行してください</p>
+        <p>
+            この手順は Step 1 が作った文字起こしSRTを使います。
+            <a href="/">Step 1　文字起こし・話者分離</a>を実行し、完了画面の「Step 2 へ進む」から戻ってきてください。
+        </p>
+    </div>
+</div>
+{% else %}
+<div class="dads-banner dads-banner--success u-mb-3" role="status">
+    <svg class="dads-banner__icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1 14.4-4.2-4.2 1.4-1.4 2.8 2.8 5.6-5.6 1.4 1.4-7 7z"/>
+    </svg>
+    <div class="dads-banner__body">
+        <p class="dads-banner__title">Step 1 の結果を使います</p>
+        <p>文字起こしSRT: <strong>{{ stt_filename }}</strong></p>
+    </div>
+</div>
+{% endif %}
+
+<form class="dads-card dads-stack"
+      hx-post="/process/matching"
+      hx-encoding="multipart/form-data"
+      hx-target="#matching-result"
+      hx-indicator="#matching-indicator">
+
+    <input type="hidden" name="job_id" value="{{ job_id }}">
+
+    <div class="dads-field">
+        <label class="dads-label" for="script-file">
+            台本・書き起こしテキスト<span class="dads-required">必須</span>
+        </label>
+        <input class="dads-file" type="file" id="script-file" name="script_file" accept=".csv,.txt" required>
+        <p class="dads-help">
+            CSV の場合は <code>id,scene_id,type,speaker,contents</code> の形（type は dialogue か scene）。<br>
+            テキストの場合は1行を1つの台詞として読みます（<code>話者:本文</code> や <code>（ト書き）</code> も解釈します）。
+            話者を書かなければ、話者は Step 1 の話者特定の結果から自動で入ります。
+        </p>
+    </div>
+
+    <div class="dads-field">
+        <label class="dads-label" for="output-csv-name">出力する対応表のファイル名</label>
+        <input class="dads-input" type="text" id="output-csv-name" name="output_csv_name"
+               value="{{ default_csv_name }}">
+    </div>
+
+    <div>
+        <button class="dads-button dads-button--lg dads-button--block" type="submit"
+                {% if not stt_filename %}disabled{% endif %}>マッチングを実行</button>
+        {% if not stt_filename %}
+        <p class="dads-help">Step 1 が終わるまで実行できません。</p>
+        {% endif %}
+    </div>
+</form>
+
+<div id="matching-indicator" class="htmx-indicator u-row u-mt-4">
+    <span class="dads-spinner" aria-hidden="true"></span>
+    <span>処理中… 台詞の数が多いと数分かかります。</span>
+</div>
+
+<div id="matching-result" class="u-mt-4"></div>
+{% endblock %}

@@ -1,0 +1,49 @@
+{#
+  全画面の土台。DADS のヘッダー・本文・フッターの枠だけを持つ。
+
+  ブロック:
+    title       … <title> に入れる文字列
+    main_class  … 本文の幅を広げたいとき "dads-main--wide" を渡す
+    content     … 本文
+    scripts     … 画面ごとの <script>
+#}
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}音声 → 字幕 統合アプリ{% endblock %}</title>
+    {# 本文は Noto Sans JP。読めない環境ではOS標準の日本語ゴシックに落ちる #}
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&family=Noto+Sans+Mono&display=swap">
+    <link rel="stylesheet" href="/static/css/dads.css">
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    {% block head_extra %}{% endblock %}
+</head>
+<body>
+    <a class="dads-skip-link" href="#main">本文へスキップ</a>
+
+    <header class="dads-header">
+        <div class="dads-header__inner">
+            <p class="dads-header__title"><a href="/">音声 → 字幕 統合アプリ</a></p>
+            <nav class="dads-header__nav" aria-label="共通メニュー">
+                <a href="/databases">声紋データベース管理</a>
+            </nav>
+        </div>
+    </header>
+
+    <main id="main" class="dads-main {% block main_class %}{% endblock %}">
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="dads-footer">
+        <div class="dads-footer__inner">
+            <p>処理はすべてこの端末（またはSSH接続先）で行われます。長い音声は数分から数十分かかります。</p>
+        </div>
+    </footer>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

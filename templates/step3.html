@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Step 3 字幕生成 ｜ 音声 → 字幕 統合アプリ{% endblock %}
+
+{% block content %}
+{% set current = 3 %}
+{% include "partials/step_nav.html" %}
+
+<h1 class="dads-page-title">Step 3　字幕生成</h1>
+<p class="dads-lead">
+    Step 2 で作った対応表を人の目で直したうえで読み込み、最終的な字幕SRTを書き出します。
+</p>
+
+{% if matching_csv %}
+<div class="dads-banner dads-banner--info u-mb-3" role="status">
+    <svg class="dads-banner__icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1 5h2v2h-2V7zm0 4h2v6h-2v-6z"/>
+    </svg>
+    <div class="dads-banner__body">
+        <p class="dads-banner__title">Step 2 の出力: {{ matching_csv }}</p>
+        <p>
+            <a href="/download/{{ matching_csv }}">{{ matching_csv }} をダウンロード</a>して
+            <code>start_time</code> / <code>end_time</code> / <code>speaker</code> /
+            <code>subtitle_text</code> を確認・修正し、下の欄にアップロードしてください。
+        </p>
+    </div>
+</div>
+{% endif %}
+
+<form class="dads-card dads-stack"
+      hx-post="/process/generation"
+      hx-encoding="multipart/form-data"
+      hx-target="#generation-result"
+      hx-indicator="#generation-indicator">
+
+    <div class="dads-field">
+        <label class="dads-label" for="edited-csv">
+            編集済みの対応表CSV<span class="dads-required">必須</span>
+        </label>
+        <input class="dads-file" type="file" id="edited-csv" name="edited_csv" accept=".csv" required>
+        <p class="dads-help">
+            使う列は <code>start_time</code>・<code>end_time</code>・<code>speaker</code>・<code>subtitle_text</code> の4つです。
+            話者が空の行は話者名なしの字幕になります。
+        </p>
+    </div>
+
+    <div class="dads-field">
+        <label class="dads-label" for="output-srt-name">出力するSRTのファイル名</label>
+        <input class="dads-input" type="text" id="output-srt-name" name="output_srt_name"
+               value="{{ default_srt_name }}">
+    </div>
+
+    <div>
+        <button class="dads-button dads-button--lg dads-button--block" type="submit">字幕を生成する</button>
+    </div>
+</form>
+
+<div id="generation-indicator" class="htmx-indicator u-row u-mt-4">
+    <span class="dads-spinner" aria-hidden="true"></span>
+    <span>生成中…</span>
+</div>
+
+<div id="generation-result" class="u-mt-4"></div>
+{% endblock %}
