@@ -2,7 +2,7 @@
 
 このモジュールは PyTorch と FAISS を読み込むため、OpenMP の衝突回避の
 環境変数をここで設定する。**本パッケージ内で最初に import されること**を
-前提にしている（:mod:`src.subtitle.matcher` を参照）。
+前提にしている（:mod:`src.matching` を参照）。
 """
 
 from __future__ import annotations

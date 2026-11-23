@@ -11,8 +11,9 @@ import csv
 
 import pytest
 
-from src.subtitle.exporter import (
+from src.subtitle_gen import (
     format_subtitle_text,
+    generate_srt,
     generate_srt_content,
     load_subtitle_data,
     write_srt_file,
@@ -469,3 +470,49 @@ class TestSRTファイルの書き出し:
             "1\n00:00:01,000 --> 00:00:02,000\n本文\n"
         )
         assert not 出力先.read_bytes().startswith(b"\xef\xbb\xbf")
+
+
+class Test窓口の字幕生成:
+    """generate_srt — 対応表CSV1本から字幕SRT1本を作る入口。"""
+
+    def _対応表を書く(self, path, rows):
+        with open(path, "w", encoding="utf-8-sig", newline="") as f:
+            writer = csv.DictWriter(
+                f, fieldnames=["start_time", "end_time", "speaker", "subtitle_text"]
+            )
+            writer.writeheader()
+            writer.writerows(rows)
+        return path
+
+    def test_書き出した件数が返りSRTが作られる(self, tmp_path):
+        対応表 = self._対応表を書く(
+            tmp_path / "対応表.csv",
+            [
+                {
+                    "start_time": "00:00:01,000",
+                    "end_time": "00:00:02,000",
+                    "speaker": "太郎",
+                    "subtitle_text": "おはよう",
+                },
+                {
+                    "start_time": "00:00:02,000",
+                    "end_time": "00:00:03,000",
+                    "speaker": "太郎",
+                    "subtitle_text": "いい天気だね",
+                },
+            ],
+        )
+        出力先 = tmp_path / "字幕.srt"
+
+        件数 = generate_srt(対応表, 出力先)
+
+        assert 件数 == 2
+        assert "(太郎)おはよう" in 出力先.read_text(encoding="utf-8")
+
+    def test_対応表が無いときは0が返りSRTを作らない(self, tmp_path):
+        出力先 = tmp_path / "字幕.srt"
+
+        件数 = generate_srt(tmp_path / "存在しない.csv", 出力先)
+
+        assert 件数 == 0
+        assert not 出力先.exists()

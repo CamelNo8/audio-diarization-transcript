@@ -20,8 +20,8 @@ from typing import Any
 import torch
 
 from src.common.logging import get_logger
-from src.transcription import faster_whisper, mlx, transformers_backend
-from src.transcription.model_ids import to_mlx_repo
+from src.whisper_backends import faster_whisper, mlx, transformers_backend
+from src.whisper_backends.model_ids import to_mlx_repo
 
 logger = get_logger(__name__)
 

@@ -1,7 +1,7 @@
 """コマンドラインからの文字起こし実行。
 
-``main.py`` から呼ばれる CLI 本体。引数の解析と、話者照合の準備、
-:class:`~src.diarization.processor.AudioProcessor` の起動を行う。
+``main.py`` から呼ばれる CLI 本体。引数の解析と、話者照合の準備
+（窓口2）、文字起こしの実行（窓口1）を行う。
 """
 
 from __future__ import annotations
@@ -18,11 +18,9 @@ from src.config import (
     DEFAULT_SPEAKER_THRESHOLD,
     DEFAULT_WHISPER_MODEL,
 )
-from src.diarization.processor import AudioProcessor, create_transcript_csv_path
-from src.diarization.registry import (
-    collect_registry_files,
-    get_cached_speaker_identifier,
-)
+from src.diarization.processor import create_transcript_csv_path
+from src.speaker_verification import load_verifier
+from src.transcription import TranscriptionSettings, transcribe_to_srt
 
 logger = get_logger(__name__)
 
@@ -184,39 +182,42 @@ def _prepare_identifier(args: argparse.Namespace):
         )
         return None
 
-    registry_paths = collect_registry_files(args.registry_dir)
-    identifier = get_cached_speaker_identifier(
-        model_name=args.embedding_model,
+    return load_verifier(
+        args.registry_dir,
         hf_token=args.hf_token,
+        model_name=args.embedding_model,
         threshold=args.threshold,
     )
-    logger.info(
-        f"登録話者の特徴量を抽出しています... "
-        f"({len(registry_paths)} 名: {args.registry_dir})"
-    )
-    for registered_name, path in registry_paths.items():
-        identifier.register_speaker(registered_name, path)
-    return identifier
 
 
 def _run(args: argparse.Namespace, output_csv_path: Path, identifier) -> int:
-    """音声処理を実行し、終了コードを返す。"""
+    """文字起こしを実行し、終了コードを返す。
+
+    出力は CSV・RTTM と、同じ名前の SRT（窓口1 の生成物）。
+    """
+    settings = TranscriptionSettings(
+        model_id=args.mlx_model,
+        backend=args.whisper_backend,
+        diarization_model_id=args.pyannote_model_id,
+        hf_token=args.hf_token,
+        num_speakers=args.num_speakers,
+    )
     try:
-        with AudioProcessor(
-            audio_file=args.audio_file_path,
-            output_csv_path=output_csv_path,
-            mlx_model_id=args.mlx_model,
-            pyannote_model_id=args.pyannote_model_id,
-            hf_token=args.hf_token,
+        outputs = transcribe_to_srt(
+            args.audio_file_path,
+            output_csv_path.with_suffix(".srt"),
+            output_csv_path,
+            settings=settings,
             identifier=identifier,
-            registry_dir=args.registry_dir,
-            whisper_backend=args.whisper_backend,
-        ) as processor:
-            if processor.process_and_save_to_csv(known_num_speakers=args.num_speakers):
-                logger.info(f"Processing complete. Results saved to {output_csv_path}")
-                return EXIT_OK
-            logger.error("Processing failed. Please check the logs above for details.")
-            return EXIT_ERROR
+        )
     except Exception as e:
         logger.critical(f"実行中に予期せぬエラーが発生しました: {e}", exc_info=True)
         return EXIT_ERROR
+
+    if outputs is None:
+        logger.error("Processing failed. Please check the logs above for details.")
+        return EXIT_ERROR
+
+    logger.info(f"Processing complete. Results saved to {outputs.csv_path}")
+    logger.info(f"字幕ファイルも書き出しました: {outputs.srt_path}")
+    return EXIT_OK

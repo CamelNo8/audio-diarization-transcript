@@ -76,7 +76,7 @@ DEFAULT_WHISPER_MODEL = "mlx-community/whisper-large-v3-mlx"
 #: 幻聴（ハルシネーション）とみなす定型フレーズ。
 #: 無音・音楽だけの区間で Whisper が出力しがちな、学習データ由来の決まり文句。
 #: 環境変数 HALLUCINATION_PHRASES_FILE で素材ごとに追記できる
-#: （src/transcription/hallucination.py を参照）。
+#: （src/whisper_backends/hallucination.py を参照）。
 DEFAULT_HALLUCINATION_PHRASES = (
     "ご視聴ありがとうございました",
     "ご視聴ありがとうございます",

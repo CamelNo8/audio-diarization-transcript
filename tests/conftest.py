@@ -15,13 +15,14 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app as app_module
-import src.web.identification as identification_module
+import src.speaker_verification as speaker_verification_module
+import src.transcription as transcription_module
 import src.web.jobs as _JOBS_MODULE
 import src.web.routes.transcription as _TRANSCRIPTION_MODULE
 import src.web.storage as _STORAGE_MODULE
 
 #: 話者照合器の生成を差し替える対象。文字起こしとラベル付けの両方が経由する。
-_IDENTIFICATION_MODULE = identification_module
+_IDENTIFICATION_MODULE = speaker_verification_module
 
 
 @pytest.fixture
@@ -131,7 +132,7 @@ def 文字起こしをモックにする(monkeypatch) -> FakeAudioProcessor:
     「POST が返った時点で処理が終わっているか」がタイミング次第になり、
     テストが不安定になるため。
     """
-    monkeypatch.setattr(_TRANSCRIPTION_MODULE, "AudioProcessor", FakeAudioProcessor)
+    monkeypatch.setattr(transcription_module, "AudioProcessor", FakeAudioProcessor)
     monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
     monkeypatch.setenv("HF_TOKEN", "dummy-token")
     monkeypatch.setattr(_TRANSCRIPTION_MODULE, "start_worker", _start_worker_同期)

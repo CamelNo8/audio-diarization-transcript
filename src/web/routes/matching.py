@@ -15,7 +15,7 @@ from src.common.filenames import safe_output_name
 from src.common.logging import get_logger
 from src.config import DEFAULT_MATCHING_CSV_NAME, PROJECT_ROOT
 from src.web import jobs, storage
-from src.web.converters import txt_to_script_csv_bytes
+from src.matching import script_csv_from_text
 from src.web.errors import WebInputError
 from src.web.templating import render_error, templates
 
@@ -25,7 +25,7 @@ router = APIRouter()
 
 #: マッチング本体を動かすモジュール。PyTorch MPS と FAISS-CPU が同一スレッドで
 #: 競合するため、Web プロセスとは別プロセスで実行する。
-_MATCHER_MODULE = "src.subtitle.matcher"
+_MATCHER_MODULE = "src.matching"
 
 #: 画面に出すログ抜粋の長さ（文字数）。
 _FAILURE_LOG_CHARS = 3000
@@ -107,7 +107,7 @@ async def _save_script_upload(script_file: UploadFile) -> Path:
     if Path(script_name).suffix.lower() != ".txt":
         return storage.save_upload(script_file, f"upload_script_{script_name}")
 
-    csv_bytes = txt_to_script_csv_bytes(await script_file.read())
+    csv_bytes = script_csv_from_text(await script_file.read())
     script_path = storage.temp_path(f"upload_script_{Path(script_name).stem}.csv")
     script_path.write_bytes(csv_bytes)
     return script_path

@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from src.common.logging import get_logger
-from src.transcription.model_ids import to_faster_whisper_model
+from src.whisper_backends.model_ids import to_faster_whisper_model
 
 logger = get_logger(__name__)
 

@@ -1,7 +1,7 @@
 """文字起こしバックエンドのモデルID変換とバックエンド選択の特性テスト。
 
 リファクタリング前の ``transcription_backend.py`` の振る舞いを固定する。
-分割後の ``src/transcription/`` に対して同じ期待値を保つ。
+分割後の ``src/whisper_backends/`` に対して同じ期待値を保つ。
 Whisper の実推論は行わず、変換・分岐のロジックだけを検証する。
 """
 
@@ -13,9 +13,9 @@ import types
 import pytest
 import torch
 
-from src.transcription import backend as tb
-from src.transcription import faster_whisper as fw
-from src.transcription import model_ids
+from src.whisper_backends import backend as tb
+from src.whisper_backends import faster_whisper as fw
+from src.whisper_backends import model_ids
 
 
 class Test実行環境の判定:

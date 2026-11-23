@@ -1,11 +1,19 @@
-"""台本と音声認識の対応付け処理のオーケストレーション。
+"""窓口3: 台本と文字起こしを対応付けて対応表を作る。
 
-Web UI からは別プロセス（``python -m src.subtitle.matcher``）として起動され、
+入口は2つ。
+
+- :func:`run_matching` … 台本CSV＋文字起こしSRT → 対応表CSV
+- :func:`script_csv_from_text` … 手動書き起こし .txt → 台本CSV
+
+Web UI からは別プロセス（``python -m src.matching``）として起動され、
 標準出力が画面に転載される。そのため CLI ではログを標準出力へ流す。
 """
 
 from __future__ import annotations
 
+import csv
+import io
+import re
 import sys
 import time
 
@@ -33,27 +41,38 @@ logger = get_logger(__name__)
 _EXPECTED_ARG_COUNT = 3
 
 _USAGE = (
-    "使い方: python -m src.subtitle.matcher 台本CSVファイルパス "
+    "使い方: python -m src.matching 台本CSVファイルパス "
     "音声認識SRTファイルパス 出力CSVファイル名（対応表）"
 )
 
+#: ``話者:本文`` 形式の行。話者名は行頭の記号を除いた 31 文字未満に限る。
+_SPEAKER_LINE_RE = re.compile(r"^\s*([^\s:：（(][^:：]{0,30}?)\s*[:：]\s*(.+)$")
 
-def run_matching_process(script_file: str, stt_file: str, output_filename: str) -> None:
-    """台本と音声認識のマッチング処理全体を統括する。
+#: 丸括弧だけで囲まれた行（ト書き・場面説明）。
+_SCENE_PAREN_RE = re.compile(r"^\s*[（(](.+)[)）]\s*$")
+
+
+def run_matching(
+    script_csv_path: str, transcript_srt_path: str, mapping_csv_path: str
+) -> None:
+    """台本と文字起こしを対応付け、対応表 CSV を書き出す。
+
+    処理の流れは「読み込み → N-gram 生成 → 文埋め込み → 近傍探索 →
+    候補ペア → WLIS で最適経路 → 対応表の書き出し」。
 
     Args:
-        script_file: 台本 CSV のパス。
-        stt_file: 音声認識 SRT のパス。
-        output_filename: 出力する対応表 CSV のパス。
+        script_csv_path: 台本 CSV のパス。
+        transcript_srt_path: 文字起こし SRT のパス。
+        mapping_csv_path: 出力する対応表 CSV のパス。
     """
     t_start = time.time()
     logger.info(
-        f"[run_matching_process] start: script={script_file}, "
-        f"stt={stt_file}, out={output_filename}"
+        f"[run_matching] start: script={script_csv_path}, "
+        f"stt={transcript_srt_path}, out={mapping_csv_path}"
     )
 
-    scripts = load_scripts_from_csv(script_file)
-    stt = load_stt_from_srt(stt_file)
+    scripts = load_scripts_from_csv(script_csv_path)
+    stt = load_stt_from_srt(transcript_srt_path)
     if not scripts or not stt:
         logger.info("データ読み込みに失敗したため、処理を中断します。")
         return
@@ -69,10 +88,10 @@ def run_matching_process(script_file: str, stt_file: str, output_filename: str) 
         matched_pairs,
         matched_script_ids,
         matched_stt_ids,
-        filename=output_filename,
+        filename=mapping_csv_path,
     )
     display_summary(scripts, stt, matched_pairs, matched_script_ids, matched_stt_ids)
-    logger.info(f"[run_matching_process] DONE in {time.time() - t_start:.2f}s")
+    logger.info(f"[run_matching] DONE in {time.time() - t_start:.2f}s")
 
 
 def _build_ngrams(
@@ -100,12 +119,12 @@ def _search_similar(script_ngrams: list[dict], stt_ngrams: list[dict]):
         (類似度, インデックス) の組。
     """
     script_embeddings, stt_embeddings = _encode_ngrams(script_ngrams, stt_ngrams)
-    logger.info("[run_matching_process] calling find_similar_vectors...")
+    logger.info("[run_matching] calling find_similar_vectors...")
     distances, indices = find_similar_vectors(
         script_embeddings, stt_embeddings, k=SIMILAR_VECTOR_TOP_K
     )
     logger.info(
-        f"[run_matching_process] find_similar_vectors returned: "
+        f"[run_matching] find_similar_vectors returned: "
         f"distances={distances.shape}, indices={indices.shape}"
     )
     return distances, indices
@@ -122,7 +141,7 @@ def _encode_ngrams(script_ngrams: list[dict], stt_ngrams: list[dict]):
     _, script_embeddings = encode_texts([ng["normalized_text"] for ng in script_ngrams])
     _, stt_embeddings = encode_texts([ng["normalized_text"] for ng in stt_ngrams])
     release_model_memory()
-    logger.info("[run_matching_process] embedding cleanup done")
+    logger.info("[run_matching] embedding cleanup done")
     return script_embeddings, stt_embeddings
 
 
@@ -135,16 +154,56 @@ def _align(script_ngrams: list[dict], stt_ngrams: list[dict], distances, indices
     candidate_pairs_df = create_candidate_pairs(
         script_ngrams, stt_ngrams, distances, indices
     )
-    logger.info(
-        f"[run_matching_process] candidate_pairs_df: {len(candidate_pairs_df)} rows"
-    )
+    logger.info(f"[run_matching] candidate_pairs_df: {len(candidate_pairs_df)} rows")
     best_path_indices = apply_wlis(candidate_pairs_df)
-    logger.info(
-        f"[run_matching_process] apply_wlis returned {len(best_path_indices)} paths"
-    )
+    logger.info(f"[run_matching] apply_wlis returned {len(best_path_indices)} paths")
     return process_final_results(
         best_path_indices, candidate_pairs_df, script_ngrams, stt_ngrams
     )
+
+
+def script_csv_from_text(txt_bytes: bytes) -> bytes:
+    """手動書き起こしのテキストを台本 CSV（id,scene_id,type,speaker,contents）にする。
+
+    各非空行を 1 行に変換する:
+
+    - ``# <内容>`` または ``（...）`` ``(...)`` → type=scene, speaker=空
+    - ``<話者>:<本文>`` / ``<話者>：<本文>`` → type=dialogue, speaker=話者
+    - それ以外 → type=dialogue, speaker=空, contents=行
+
+    id は 1 から連番、scene_id は空欄。
+
+    Args:
+        txt_bytes: UTF-8（BOM 付き可）のテキスト。
+
+    Returns:
+        BOM 付き UTF-8 の CSV バイト列。
+    """
+    text = txt_bytes.decode("utf-8-sig")
+    buf = io.StringIO()
+    writer = csv.writer(buf, quoting=csv.QUOTE_MINIMAL)
+    writer.writerow(["id", "scene_id", "type", "speaker", "contents"])
+    idx = 1
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        writer.writerow([idx, *_classify_script_line(line)])
+        idx += 1
+    return buf.getvalue().encode("utf-8-sig")
+
+
+def _classify_script_line(line: str) -> tuple[str, str, str, str]:
+    """台本 1 行を ``(scene_id, type, speaker, contents)`` に振り分ける。"""
+    if line.startswith("#"):
+        return "", "scene", "", line.lstrip("#").strip()
+    m_scene = _SCENE_PAREN_RE.match(line)
+    if m_scene:
+        return "", "scene", "", m_scene.group(1).strip()
+    m_speaker = _SPEAKER_LINE_RE.match(line)
+    if m_speaker:
+        return "", "dialogue", m_speaker.group(1).strip(), m_speaker.group(2).strip()
+    return "", "dialogue", "", line
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -162,7 +221,7 @@ def main(argv: list[str] | None = None) -> int:
         logger.error("エラー: 引数の数が正しくありません。")
         logger.error(_USAGE)
         return 1
-    run_matching_process(args[0], args[1], args[2])
+    run_matching(args[0], args[1], args[2])
     return 0
 
 

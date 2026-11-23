@@ -16,7 +16,7 @@ CLI（`main.py`）と、3 ステップを通しで行える **FastAPI + htmx の
 
 ### OS と文字起こしバックエンド
 
-文字起こしバックエンドは実行環境に応じて自動で切り替わります（`src/transcription/`）。
+文字起こしバックエンドは実行環境に応じて自動で切り替わります（`src/whisper_backends/`）。
 ユーザーはモデルID（`large-v3` 等）をそのまま指定でき、必要に応じて各バックエンド用に変換されます。
 
 | 環境 | Whisper 実装 | 備考 |
@@ -185,6 +185,10 @@ uv run python main.py 対象の会議録音.mp4
 "00:00:09:000","00:00:12:000","Unknown_1","（※登録外の人の発言）音声テストです。",""
 ```
 
+CSV と同じ名前で、字幕 SRT（`result.srt`。本文は `[話者] 本文`）と
+話者分離の生結果（`result.rttm`）も同じ場所に書き出します。
+SRT は Step 2 のマッチング（窓口3）がそのまま入力に使えます。
+
 ---
 
 ## Web UI（FastAPI + htmx）
@@ -203,9 +207,9 @@ UI は**手順ごとに1画面**です。画面の上にあるステップ表示
 
 | URL | 画面 | 内容 |
 |---|---|---|
-| `/` | **Step 1: 文字起こし & 話者分離** | 音声/動画 ＋ 音声特徴の登録ファイル群（任意）から文字起こし SRT を生成（本文は `[speaker] text` 形式）。内部で `main.py` と同じ `AudioProcessor` を呼び出し、サイドカー CSV と RTTM も `temp/` に保存。詳細設定でしきい値・話者数・モデル名・HF_TOKEN・denoise を指定可能。 |
-| `/matching?job_id=...` | **Step 2: マッチング（対応表作成）** | 台本（`.csv`）または手動書き起こしテキスト（`.txt`）＋ Step 1 の SRT から、SentenceTransformer + FAISS + WLIS で対応表 CSV を生成（`src/subtitle/`）。`.txt` は `話者:本文` / `（ト書き）` / `# 場面` を解釈して台本 CSV に自動変換。 |
-| `/generation?csv=...` | **Step 3: 字幕生成** | 編集済み対応表 CSV から字幕 SRT を生成（`src/subtitle/exporter.py`）。 |
+| `/` | **Step 1: 文字起こし & 話者分離** | 音声/動画 ＋ 音声特徴の登録ファイル群（任意）から文字起こし SRT を生成（本文は `[speaker] text` 形式）。内部で `main.py` と同じ窓口1（`src/transcription.py`）を呼び出し、サイドカー CSV と RTTM も `temp/` に保存。詳細設定でしきい値・話者数・モデル名・HF_TOKEN・denoise を指定可能。 |
+| `/matching?job_id=...` | **Step 2: マッチング（対応表作成）** | 台本（`.csv`）または手動書き起こしテキスト（`.txt`）＋ Step 1 の SRT から、SentenceTransformer + FAISS + WLIS で対応表 CSV を生成（窓口3 `src/matching.py`）。`.txt` は `話者:本文` / `（ト書き）` / `# 場面` を解釈して台本 CSV に自動変換。 |
+| `/generation?csv=...` | **Step 3: 字幕生成** | 編集済み対応表 CSV から字幕 SRT を生成（`src/subtitle_gen.py`）。 |
 | `/databases` | 音声特徴データベース管理 | DB の作成・話者の追加・リネーム・トリミング・削除。 |
 | `/unknowns/{job_id}` | 未登録話者のラベル付け | Step 1 で Unknown になったクラスタに名前を付ける。 |
 
@@ -297,8 +301,8 @@ Step 1 の詳細設定で BGM/背景音の除去モードを選べます。
 ## CLI コマンド版（個別実行）
 
 ```bash
-uv run python -m src.subtitle.matcher 台本.csv 音声認識.srt 対応表.csv
-uv run python -m src.subtitle.exporter 対応表.csv 字幕.srt
+uv run python -m src.matching 台本.csv 音声認識.srt 対応表.csv
+uv run python -m src.subtitle_gen 対応表.csv 字幕.srt
 ```
 
 台本 CSV の形式:
@@ -325,6 +329,18 @@ dialogue,話者B,お疲れ様です
 
 ## プロジェクト構成
 
+処理の流れは **4つの窓口**に分かれています。主要な流れはこの4ファイルだけ読めば追えます。
+
+| 窓口 | ファイル | 入力 → 出力 |
+|---|---|---|
+| 1 | `src/transcription.py` | 映像/音声 → 文字起こし SRT（＋CSV・RTTM） |
+| 2 | `src/speaker_verification.py` | 話者分離の区間 × 音声特徴DB → 話者名 |
+| 3 | `src/matching.py` | 台本(`.csv`/`.txt`) ＋ 文字起こしSRT → 対応表CSV |
+| 4 | `src/subtitle_gen.py` | 対応表CSV → 字幕SRT |
+
+窓口2 は**自分では話者分離をしません**。窓口1 が1回だけ分離した結果を受け取ります
+（同じ音声を2回分離すると、一番重い工程が二重に走るため）。
+
 エントリポイントはルートに置き、実体は `src/` 配下に機能ごとのパッケージとして持ちます。
 
 ```
@@ -333,6 +349,10 @@ audio-diarization-transcript/
 ├── app.py                      # Web のエントリポイント（実体は src/web/）
 ├── spark-up.sh / -down.sh / -logs.sh   # Spark 上の app.py を Mac から操作する
 ├── src/
+│   ├── transcription.py        # ★窓口1 映像/音声 → 文字起こしSRT
+│   ├── speaker_verification.py # ★窓口2 区間 × 音声特徴DB → 話者名
+│   ├── matching.py             # ★窓口3 台本 + 文字起こし → 対応表CSV
+│   ├── subtitle_gen.py         # ★窓口4 対応表CSV → 字幕SRT
 │   ├── config.py               # 定数・既定値・パス（しきい値/モデル名/出力名）
 │   ├── common/                 # 複数機能から使う共通処理
 │   │   ├── audio.py            #   ffmpeg 呼び出し（切り出し・16kHz mono 変換）
@@ -342,9 +362,9 @@ audio-diarization-transcript/
 │   │   ├── filenames.py        #   出力ファイル名の検証（パストラバーサル対策）
 │   │   ├── logging.py          #   ロギング設定と get_logger
 │   │   └── timecode.py         #   時刻文字列 ⇔ 秒の相互変換
-│   ├── cli/runner.py           # CLI 本体（引数解析 → AudioProcessor 起動）
-│   ├── diarization/            # 話者分離・話者照合
-│   │   ├── processor.py        #   AudioProcessor（全体の司令塔）
+│   ├── cli/runner.py           # CLI 本体（引数解析 → 窓口2 → 窓口1）
+│   ├── diarization/            # 窓口1・2 の中身（前処理・話者分離・照合）
+│   │   ├── processor.py        #   AudioProcessor（前処理〜CSV出力の司令塔）
 │   │   ├── pipeline.py         #   pyannote パイプラインの読み込み・実行
 │   │   ├── vocals.py           #   背景音除去（audio-separator）
 │   │   ├── clusters.py         #   クラスタの代表区間・未知クラスタの永続化
@@ -352,35 +372,31 @@ audio-diarization-transcript/
 │   │   ├── embedding_cache.py  #   話者エンベディングの永続キャッシュ
 │   │   ├── registry.py         #   音声特徴の登録ファイルの収集・照合器のキャッシュ
 │   │   ├── transcript.py       #   文字起こし結果 → CSV
-│   │   ├── interactive.py      #   CLI での対話的な未知話者解決
 │   │   └── torch_compat.py     #   torch のバージョン差異の吸収
-│   ├── transcription/          # Whisper バックエンドの切り替え
+│   ├── whisper_backends/       # 窓口1 の中身（Whisper 実装の切り替え）
 │   │   ├── backend.py          #   バックエンド選択
 │   │   ├── model_ids.py        #   モデルID の表記変換
+│   │   ├── hallucination.py    #   幻聴フレーズの除外
 │   │   ├── mlx.py / faster_whisper.py / transformers_backend.py
-│   ├── subtitle/               # 台本と音声認識の対応付け
+│   ├── subtitle/               # 窓口3・4 の中身（対応付けのアルゴリズム）
 │   │   ├── loader.py           #   台本CSV / SRT の読み込み
 │   │   ├── ngram.py            #   テキスト正規化と N-gram 生成
 │   │   ├── embedding.py        #   SentenceTransformer + FAISS 近傍探索
 │   │   ├── alignment.py        #   候補ペア生成と WLIS
-│   │   ├── report.py           #   マッチ結果の CSV 出力・集計表示
-│   │   ├── matcher.py          #   マッチングの入口（別プロセスで実行される）
-│   │   └── exporter.py         #   対応表CSV → 字幕SRT
+│   │   └── report.py           #   マッチ結果の CSV 出力・集計表示
 │   ├── voice_db/registry.py    # 音声特徴データベース（作成・話者の追加/削除/改名）
-│   ├── web/                    # FastAPI + htmx の Web アプリ層
+│   ├── web/                    # FastAPI + htmx の Web アプリ層（窓口を呼ぶだけ）
 │   │   ├── application.py      #   ルータ登録（create_app）
 │   │   ├── templating.py       #   Jinja2 環境とエラー表示
 │   │   ├── storage.py          #   temp/ への保存とパス解決
 │   │   ├── jobs.py             #   ジョブの発行・永続化・進捗・CSV再ラベル
-│   │   ├── converters.py       #   文字起こしCSV→SRT、テキスト→台本CSV
-│   │   ├── identification.py   #   HFトークン解決・照合器の生成
 │   │   ├── log_capture.py      #   処理ログの捕捉（進捗表示用）
-│   │   ├── forms.py / errors.py
+│   │   ├── forms.py            #   フォーム値のパース・HFトークンの解決
+│   │   ├── errors.py           #   そのまま画面に出す入力エラー
 │   │   └── routes/             #   pages / transcription / matching /
 │   │                           #   generation / databases / unknowns
-│   └── spark/                  # DGX Spark へ推論をオフロードする API（Path 2）
-│       ├── server.py           #   Spark 側で動かす FastAPI サーバー
-│       └── client.py           #   PC 側から呼ぶクライアント
+│   └── spark/                  # DGX Spark へ推論をオフロードする API
+│                               #   （Path 2。**現在未使用**のまま維持している）
 ├── templates/                  # Jinja2 テンプレート
 │   ├── base.html               #   全画面の土台（ヘッダー・フッター）
 │   ├── step1.html / step2.html / step3.html   # 手順ごとの画面
@@ -388,7 +404,6 @@ audio-diarization-transcript/
 │   └── partials/               #   htmx の差し替え片・ステップ表示
 ├── static/css/dads.css         # デジタル庁デザインシステムに合わせたCSS
 ├── tests/                      # pytest（重いモデルはモック）
-├── tools/                      # 調査用の使い捨てスクリプト
 ├── temp/                       # 作業ディレクトリ（.gitignore 済み）
 └── voice_databases/            # 音声特徴DB（.gitignore 済み。.trash/ が削除済みの退避先）
 ```

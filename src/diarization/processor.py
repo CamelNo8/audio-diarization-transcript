@@ -23,7 +23,6 @@ from src.common.files import remove_quietly
 from src.common.logging import get_logger
 from src.diarization import clusters as clusters_mod
 from src.diarization.clusters import ClusterAssignments
-from src.diarization.interactive import resolve_unknown_speakers
 from src.diarization.pipeline import (
     get_cached_pipeline,
     select_device,
@@ -32,7 +31,8 @@ from src.diarization.pipeline import (
 from src.diarization import transcript
 from src.diarization.speaker_identifier import SpeakerIdentifier
 from src.diarization.vocals import extract_vocals
-from src.transcription.backend import transcribe_full
+from src import speaker_verification
+from src.whisper_backends.backend import transcribe_full
 
 logger = get_logger(__name__)
 
@@ -64,8 +64,6 @@ class AudioProcessor:
         pyannote_model_id: str,
         hf_token: str,
         identifier: Optional[SpeakerIdentifier] = None,
-        registry_dir: Optional[Path] = None,
-        interactive_unknown_resolve: bool = True,
         denoise: bool = False,
         separator_model: Optional[str] = None,
         whisper_backend: str = "auto",
@@ -77,8 +75,6 @@ class AudioProcessor:
         self.pyannote_model_id = pyannote_model_id
         self.hf_token = hf_token
         self.identifier = identifier
-        self.registry_dir = registry_dir
-        self.interactive_unknown_resolve = interactive_unknown_resolve
         self.denoise = denoise
         self.separator_model = separator_model
 
@@ -198,22 +194,16 @@ class AudioProcessor:
         return unwrap_diarization(result)
 
     def _assign_speakers(self, diarization) -> None:
-        """各クラスタに話者名を割り当てる（識別器が無ければ全て Unknown）。"""
-        if self.identifier is None:
-            clusters_mod.label_all_as_unknown(diarization, self.assignments)
-            return
+        """各クラスタに話者名を割り当てる（識別器が無ければ全て Unknown）。
 
-        logger.info("Identifying speakers for each cluster...")
-        clusters_mod.identify_clusters(
+        照合そのものは窓口 :mod:`src.speaker_verification` に任せる
+        （「区間 × 音声特徴DB」の判断を1か所に置くため）。
+        """
+        if self.identifier is not None:
+            logger.info("Identifying speakers for each cluster...")
+        speaker_verification.verify_segments(
             diarization, self.identifier, self.temp_wav_path, self.assignments
         )
-        if self.registry_dir is not None and self.interactive_unknown_resolve:
-            resolve_unknown_speakers(
-                self.identifier,
-                self.assignments,
-                self.temp_wav_path,
-                self.registry_dir,
-            )
 
     def _transcribe(self) -> List[Dict[str, Any]]:
         """音声全体を文字起こしし、セグメントのリストを返す。"""

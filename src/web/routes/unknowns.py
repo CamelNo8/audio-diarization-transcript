@@ -24,10 +24,10 @@ from src.config import (
     UNKNOWN_LABEL_PREFIX,
 )
 from src.web import jobs
-from src.web.converters import csv_to_srt_with_speaker
 from src.web.errors import WebInputError
-from src.web.forms import parse_opt_float
-from src.web.identification import load_identifier, resolve_hf_token
+from src.speaker_verification import load_verifier
+from src.transcription import rebuild_srt_from_csv
+from src.web.forms import parse_opt_float, resolve_hf_token
 from src.web.templating import render_error, templates
 
 logger = get_logger(__name__)
@@ -273,7 +273,7 @@ def _reload_identifier(
     """
     hf_token = resolve_hf_token(hf_token_override)
     try:
-        return load_identifier(
+        return load_verifier(
             db_dir,
             model_name=job.get("embedding_model", DEFAULT_EMBEDDING_MODEL),
             hf_token=hf_token,
@@ -353,7 +353,7 @@ def _apply_mapping(job: Dict[str, Any], mapping: SpeakerMapping) -> int:
     srt_path_str = job.get("srt_path")
     if srt_path_str:
         try:
-            csv_to_srt_with_speaker(csv_path, Path(srt_path_str))
+            rebuild_srt_from_csv(csv_path, Path(srt_path_str))
         except Exception:
             logger.exception("SRT 再生成に失敗しました")
     return replaced

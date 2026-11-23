@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>仕様書: 主要4ファイルへの整理とオーバーエンジニアリング撤去</title>
+<style>
+  :root {
+    --blue-900: #0017c1; --blue-1000: #00118f; --blue-50: #e8f1fe; --blue-100: #d9e6ff;
+    --gray-50: #f2f2f2; --gray-100: #e6e6e6; --gray-200: #cccccc; --gray-536: #767676;
+    --gray-800: #333333; --gray-900: #1a1a1a;
+    --green-800: #197a4b; --green-50: #e6f5ec; --red-800: #ec0000; --yellow-900: #927200;
+    --yellow-300: #ffd43d;
+  }
+  body {
+    font-family: "Noto Sans JP", "Hiragino Sans", sans-serif;
+    color: var(--gray-800); line-height: 1.7; letter-spacing: 0.02em;
+    margin: 0; padding: 0 16px 64px; background: #fff;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  header.page { border-bottom: 4px solid var(--blue-900); padding: 32px 0 16px; margin-bottom: 32px; }
+  h1 { font-size: 32px; line-height: 1.5; letter-spacing: 0.01em; margin: 0 0 8px; color: var(--gray-900); }
+  .meta { color: var(--gray-536); font-size: 14px; }
+  h2 { font-size: 24px; line-height: 1.5; margin: 48px 0 16px; padding-left: 12px; border-left: 6px solid var(--blue-900); }
+  h3 { font-size: 18px; line-height: 1.6; margin: 32px 0 8px; }
+  p, li { font-size: 16px; }
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 15px; }
+  th, td { border: 1px solid var(--gray-200); padding: 8px 12px; text-align: left; vertical-align: top; }
+  th { background: var(--gray-50); font-weight: 700; }
+  code { background: var(--gray-50); padding: 2px 6px; border-radius: 4px; font-family: "Noto Sans Mono", monospace; font-size: 14px; }
+  pre { background: var(--gray-50); padding: 16px; border-radius: 8px; overflow-x: auto; font-size: 14px; line-height: 1.5; }
+  pre code { background: none; padding: 0; }
+  .banner { border: 3px solid var(--blue-900); border-radius: 12px; padding: 16px 24px; margin: 24px 0; }
+  .banner.info { border-color: var(--blue-900); }
+  .banner.warn { border-color: var(--yellow-900); }
+  .banner.note { border-color: var(--gray-536); }
+  .banner h3 { margin-top: 0; }
+  .status { display: inline-block; font-size: 13px; font-weight: 700; padding: 2px 10px; border-radius: 999px; border: 2px solid; }
+  .status.todo { color: var(--gray-536); border-color: var(--gray-536); }
+  .status.doing { color: var(--blue-900); border-color: var(--blue-900); background: var(--blue-50); }
+  .status.done { color: var(--green-800); border-color: var(--green-800); background: var(--green-50); }
+  .status.hold { color: var(--yellow-900); border-color: var(--yellow-900); }
+  .phase { margin: 32px 0; border: 1px solid var(--gray-200); border-radius: 12px; overflow: hidden; }
+  .phase > h3 { margin: 0; padding: 12px 16px; background: var(--gray-50); border-bottom: 1px solid var(--gray-200); font-size: 17px; }
+  .phase table { margin: 0; border: none; }
+  .phase table th:first-child, .phase table td:first-child { width: 72px; }
+  .phase table th:last-child, .phase table td:last-child { width: 104px; }
+  .verdict-ng { color: var(--red-800); font-weight: 700; }
+  .verdict-ok { color: var(--green-800); font-weight: 700; }
+  .verdict-mid { color: var(--yellow-900); font-weight: 700; }
+  .out { color: var(--gray-536); }
+  footer.page { margin-top: 64px; padding-top: 16px; border-top: 1px solid var(--gray-200); color: var(--gray-536); font-size: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="page">
+  <h1>主要4ファイルへの整理とオーバーエンジニアリング撤去</h1>
+  <p class="meta">
+    作成日: 2026-11-24 ／ 状態: <span class="status done">実装ずみ</span>（コミットは未実施） ／
+    対象: <code>src/</code> 全体（機能・性能は変えない）
+  </p>
+</header>
+
+<h2>1. 目的</h2>
+<p>
+やることは2つ。<strong>（A）読む場所を4つに絞る</strong>、<strong>（B）使われていない仕組みを捨てる</strong>。
+振る舞い（出力されるファイルの中身）と処理速度は一切変えない。
+</p>
+<ul>
+  <li><strong>A.</strong> 「どこから読めばいいか分からない」状態を直す。<code>src/</code> 直下に処理の入口（窓口）を4つ置き、
+      主要な流れをその4ファイルだけで追えるようにする。</li>
+  <li><strong>B.</strong> 使われていない機能・二重になっている層を撤去する（約420行減）。</li>
+</ul>
+
+<div class="banner info">
+  <h3>前提: 現状のテストは全部通っている</h3>
+  <pre><code>$ uv run pytest -q
+500 passed, 2 warnings in 9.52s</code></pre>
+  <p style="margin-bottom:0">
+    この 500 件が、リファクタリング後も<strong>同じ期待値で通ること</strong>が完了条件。
+    テストを緩めて通すことはしない。撤去する機能のテストだけは、機能ごと一緒に消す。
+  </p>
+</div>
+
+<h2>2. オーバーエンジニアリング点検（調査結果）</h2>
+<p><code>src/</code> は 60ファイル 7,136行。1ファイルずつ「本当に呼ばれているか」「層が二重でないか」を確認した結果。</p>
+
+<table>
+  <tr><th>対象</th><th>行数</th><th>判定</th><th>根拠</th></tr>
+  <tr>
+    <td><code>src/diarization/interactive.py</code></td><td>303</td>
+    <td class="verdict-ng">余剰</td>
+    <td>CLI 上で音声を再生しながら Unknown 話者に名前を付ける対話機能。同じ役割は Web UI の <code>/unknowns</code> 画面が担っており、そちらが実運用。</td>
+  </tr>
+  <tr>
+    <td><code>clusters.recompute_distances_for_cluster</code><br><code>clusters.remap_remaining_unknowns</code></td><td>57</td>
+    <td class="verdict-ng">余剰</td>
+    <td>呼び出しているのは <code>interactive.py</code> だけ。上を消すと到達不能になる。</td>
+  </tr>
+  <tr>
+    <td><code>src/web/identification.py</code></td><td>54</td>
+    <td class="verdict-mid">層が二重</td>
+    <td>中身は <code>diarization/registry.py</code> への受け渡しだけ。窓口 <code>speaker_verification.py</code> に統合する。</td>
+  </tr>
+  <tr>
+    <td><code>src/web/converters.py</code></td><td>97</td>
+    <td class="verdict-mid">置き場所が違う</td>
+    <td>「文字起こしCSV→SRT」と「txt→台本CSV」。Web 固有ではなく各工程の仕事なので、窓口へ移す。</td>
+  </tr>
+  <tr>
+    <td><code>src/web/routes/transcription.py</code></td><td>425</td>
+    <td class="verdict-mid">混ざっている</td>
+    <td>HTTP の受け取りと、重い処理の実行手順が同じファイルに同居。実行手順を <code>transcription.py</code> へ出せば約230行になる。</td>
+  </tr>
+  <tr>
+    <td><code>TranscriptionOptions.mlx_model</code></td><td>5</td>
+    <td class="verdict-ng">余剰</td>
+    <td>画面（<code>templates/step1.html</code>）が送っていないフォーム項目。後方互換のための分岐が実質的に死んでいる。</td>
+  </tr>
+  <tr>
+    <td><code>src/spark/</code>（server + client）</td><td>429</td>
+    <td class="verdict-mid">未使用（維持と決定）</td>
+    <td>README 自身が「Path 2 / 未使用」と記載。実運用は <code>spark-up.sh</code> が Spark 上で <code>app.py</code> を直接起動する Path 1。<strong>将来構想のため残す</strong>と確認済み。</td>
+  </tr>
+  <tr>
+    <td><code>src/common/*</code>（7ファイル, 最小11行）</td><td>510</td>
+    <td class="verdict-ok">妥当</td>
+    <td>「1機能1ファイル」の規約どおり。どれも2か所以上から呼ばれている。触らない。</td>
+  </tr>
+  <tr>
+    <td><code>src/transcription/</code>（バックエンド4種）</td><td>645</td>
+    <td class="verdict-ok">妥当</td>
+    <td>Mac(mlx) / Win・Linux(faster) / Spark(transformers) は実際に別物。抽象化しすぎではない。</td>
+  </tr>
+  <tr>
+    <td><code>src/subtitle/*</code>（loader〜report）</td><td>1,106</td>
+    <td class="verdict-ok">妥当</td>
+    <td>N-gram → 文埋め込み → 候補生成 → WLIS と、工程がそのまま1ファイルずつ。統合すると読めなくなる。</td>
+  </tr>
+  <tr>
+    <td><code>diarization/embedding_cache.py</code></td><td>162</td>
+    <td class="verdict-ok">妥当</td>
+    <td>音声特徴DBの再計算を避けるキャッシュ。消すと性能が落ちる（＝今回の禁止事項）。</td>
+  </tr>
+</table>
+
+<div class="banner note">
+  <h3>結論: 全体としては作り込みすぎていない</h3>
+  <p style="margin-bottom:0">
+    過剰な抽象化（意味のない基底クラス、使われないインターフェース、将来用の設定）は見つからなかった。
+    問題は<strong>「余り物が残っている」</strong>ことと<strong>「入口が見えない」</strong>ことの2点に絞られる。
+  </p>
+</div>
+
+<h2>3. 確認した方針（2026-11-24 クライアント回答）</h2>
+<table>
+  <tr><th>論点</th><th>決定</th></tr>
+  <tr><td>未使用の Spark 推論API（<code>src/spark/</code>）</td><td>残す（未使用のまま維持と明記する）</td></tr>
+  <tr><td>CLI（<code>main.py</code> / <code>src/cli/</code>）</td><td>残す。ただし対話機能（<code>interactive.py</code>）は削除</td></tr>
+  <tr><td>4ファイルの作り方</td><td>窓口（ファサード）方式。重い実装は今のサブパッケージに残す</td></tr>
+  <tr><td>ファイル名 <code>matting.py</code></td><td><code>matching.py</code> に直す</td></tr>
+</table>
+
+<h2>4. ご質問への回答: 4ファイル構成はできるか</h2>
+<p><strong>できる。</strong>今のコードはすでにこの4工程に分かれているので、やるのは「窓口を作って名前を付ける」こと。ただし条件が1つある。</p>
+
+<div class="banner warn">
+  <h3>条件: <code>transcription.py</code> と <code>speaker_verification.py</code> は話者分離の結果を共有しなければならない</h3>
+  <p>
+    ご提案どおり「文字起こし」と「話者照合」を<strong>完全に独立した入口</strong>にすると、
+    どちらも自分で ffmpeg 変換 → 背景音除去 → pyannote 話者分離をやり直すことになり、
+    一番重い工程が<strong>2回</strong>走る（＝処理時間がほぼ倍）。これは「性能を壊さない」に反する。
+  </p>
+  <p style="margin-bottom:0">
+    そこで <code>speaker_verification.py</code> は<strong>「pyannote の区間（diarization）と音声を受け取って照合する部品」</strong>にする。
+    ご指定の「pyannoteで取得した区間で照合」という定義そのままで、区間を自分では作らない。
+    <code>transcription.py</code> が1回だけ分離して、その結果を渡す。
+  </p>
+</div>
+
+<h3>4-1. もう1つの技術的な制約: 名前の衝突</h3>
+<p>
+今 <code>src/transcription/</code> という<strong>ディレクトリ</strong>が存在する（Whisper のバックエンド切り替え）。
+Python では同じ階層に <code>transcription/</code> と <code>transcription.py</code> を同居させられないので、
+ディレクトリ側を <code>src/whisper_backends/</code> に改名する。中身は動かさず、import を書き換えるだけ。
+</p>
+
+<h2>5. 目標の構成</h2>
+<pre><code>src/
+├── transcription.py          ★窓口1  映像/音声 → 文字起こしSRT（+CSV・RTTM）
+├── speaker_verification.py   ★窓口2  pyannoteの区間 × 音声特徴DB → 話者名
+├── matching.py               ★窓口3  台本(.csv/.txt) + 文字起こしSRT → 対応表CSV
+├── subtitle_gen.py           ★窓口4  対応表CSV → 字幕SRT
+├── config.py                 定数・既定値
+├── common/                   共通処理（ffmpeg・CSV・時刻・ログ）
+├── diarization/              内部実装: 前処理・話者分離・照合の中身
+├── whisper_backends/         内部実装: Whisper バックエンド（旧 src/transcription/）
+├── subtitle/                 内部実装: N-gram・文埋め込み・WLIS・対応表の書き出し
+├── voice_db/                 音声特徴データベースの管理
+├── web/                      HTTP 層だけ（窓口4つを呼ぶ）
+├── cli/                      CLI 引数の解釈（窓口を呼ぶ）
+└── spark/                    未使用の推論API（将来構想のため維持）</code></pre>
+
+<h3>5-1. 各窓口の入力と出力</h3>
+
+<h4>窓口1: <code>src/transcription.py</code></h4>
+<pre><code>@dataclass(frozen=True)
+class TranscriptionSettings:
+    """文字起こしのモデル設定。"""
+    model_id: str                 # Whisper のモデルID
+    backend: str = "auto"         # "auto" / "mlx" / "faster" / "transformers"
+    diarization_model_id: str = DEFAULT_DIARIZATION_MODEL
+    hf_token: str = ""
+    num_speakers: int | None = None
+    denoise_mode: str = "off"     # "off" / "fast" / "high"
+
+@dataclass(frozen=True)
+class TranscriptionOutputs:
+    """文字起こしの生成物。"""
+    csv_path: Path                # 1区間1行（start,end,speaker,text,cosine_distance）
+    srt_path: Path                # 字幕SRT。本文は "[話者] 本文"
+    unknown_clusters: list[dict]  # 未登録だった話者クラスタ（名前付け画面用）
+
+def transcribe_to_srt(
+    media_path: Path,
+    srt_path: Path,
+    csv_path: Path,
+    *,
+    settings: TranscriptionSettings,
+    identifier: SpeakerIdentifier | None = None,   # 窓口2 が作る照合器
+    unknown_clusters_dir: Path | None = None,
+) -> TranscriptionOutputs | None:
+    """映像/音声を文字起こしし、話者名つき SRT を書き出す。失敗時は None。"""
+
+def rebuild_srt_from_csv(csv_path: Path, srt_path: Path) -> int:
+    """話者名を直したあとの CSV から SRT を作り直す（Unknown にラベルを付けたとき用）。"""</code></pre>
+
+<h4>窓口2: <code>src/speaker_verification.py</code></h4>
+<pre><code>def load_verifier(
+    db_dir: Path, *, model_name: str, hf_token: str, threshold: float
+) -> SpeakerIdentifier:
+    """音声特徴データベースを読み込んだ照合器を返す（埋め込みキャッシュつき）。"""
+
+def verify_segments(
+    diarization, identifier: SpeakerIdentifier, wav_path: Path
+) -> ClusterAssignments:
+    """pyannote が出した各クラスタの代表区間を照合し、話者名を割り当てる。"""
+
+#: 当初案にあった verify_clip / save_unknown_clips は作らなかった。
+#: 既存メソッドをそのまま呼ぶだけの包み紙になるため（10-3 を参照）。</code></pre>
+
+<h4>窓口3: <code>src/matching.py</code>（旧 <code>src/subtitle/matcher.py</code>）</h4>
+<pre><code>def match(script_path: str, transcript_srt_path: str, mapping_csv_path: str) -> None:
+    """台本と文字起こしを対応付け、対応表CSVを書き出す。
+    アルゴリズム: 正規化 → N-gram → 文埋め込み → FAISS近傍探索 → 候補ペア → WLIS。"""
+
+def script_csv_from_text(txt_bytes: bytes) -> bytes:
+    """手動書き起こし .txt を台本CSV（id,scene_id,type,speaker,contents）へ変換する。"""
+
+def main(argv: list[str] | None = None) -> int:
+    """python -m src.matching 台本.csv 文字起こし.srt 対応表.csv"""</code></pre>
+
+<h4>窓口4: <code>src/subtitle_gen.py</code>（旧 <code>src/subtitle/exporter.py</code>）</h4>
+<pre><code>def generate_srt(mapping_csv_path: str, srt_path: str) -> int:
+    """編集済み対応表CSVから字幕SRTを生成し、書き出した行数を返す。"""
+
+def main(argv: list[str] | None = None) -> int:
+    """python -m src.subtitle_gen 対応表.csv 字幕.srt"""</code></pre>
+
+<h3>5-2. 呼び出し関係（リファクタリング後）</h3>
+<pre><code>app.py ─ src/web/routes/transcription.py ─┬─ speaker_verification.load_verifier()
+                                          └─ transcription.transcribe_to_srt()
+                                                   └─ (内部) diarization/ + whisper_backends/
+                                                              └─ speaker_verification.verify_segments()
+
+         src/web/routes/matching.py    ── python -m src.matching  （別プロセス）
+         src/web/routes/generation.py  ── subtitle_gen.generate_srt()
+         src/web/routes/unknowns.py    ─┬─ speaker_verification.verify_clip()
+                                        └─ transcription.rebuild_srt_from_csv()
+
+main.py ─ src/cli/runner.py ─┬─ speaker_verification.load_verifier()
+                             └─ transcription.transcribe_to_srt()</code></pre>
+
+<h2>6. 壊さないための不変条件（レビュー時のチェック項目）</h2>
+<table>
+  <tr><th>#</th><th>守ること</th><th>理由</th></tr>
+  <tr><td>1</td><td>pyannote の話者分離は1素材につき<strong>1回だけ</strong></td><td>一番重い工程。2回走らせたら性能劣化</td></tr>
+  <tr><td>2</td><td>ffmpeg 変換と背景音除去も1回だけ。一時WAVを使い回す</td><td>同上</td></tr>
+  <tr><td>3</td><td><code>subtitle/embedding.py</code> を <code>numpy</code>/<code>faiss</code>/<code>torch</code> より<strong>先に import</strong> する順序を維持</td><td>OpenMP の環境変数を設定しているため。順序が変わると落ちる・遅くなる</td></tr>
+  <tr><td>4</td><td>埋め込みキャッシュ（<code>embedding_cache/</code>）のキー計算を変えない</td><td>キーが変わると既存キャッシュが全部ミスになる</td></tr>
+  <tr><td>5</td><td>SRT 本文の <code>[話者] 本文</code> 形式を維持</td><td>窓口3 の SRT 読み込みがこの形式を前提にしている</td></tr>
+  <tr><td>6</td><td>出力ファイルの列・時刻表記・ファイル名の既定値を変えない</td><td>対応表は人が編集する。列が変わると手作業が無駄になる</td></tr>
+  <tr><td>7</td><td>Web の Step 1 は非同期ジョブのまま（<code>temp/clusters/&lt;job_id&gt;/job.json</code>）</td><td>長尺でも接続が切れない現在の挙動を維持</td></tr>
+  <tr><td>8</td><td>処理ログが2秒間隔で画面に流れる挙動を維持</td><td>進捗が見えなくなると実質的な機能低下</td></tr>
+</table>
+
+<h2>7. 作業フェーズと ToDo</h2>
+<p>各フェーズの最後に <code>uv run pytest -q</code> を実行し、500件が通ることを確認してから次へ進む。</p>
+
+<div class="phase">
+  <h3>Phase 0: 現状固定</h3>
+  <table>
+    <tr><th>ToDo</th><th>内容</th><th>状態</th></tr>
+    <tr><td>0-1</td><td>テスト全通過の記録（500 passed）</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>0-2</td><td><code>ruff check .</code> は <code>All checks passed!</code>。<code>ruff format --check .</code> は <code>tests/test_web_unknowns.py</code> 1件が未整形（リファクタリング前からの状態。今回は触らず記録だけ）</td><td><span class="status done">完了</span></td></tr>
+  </table>
+</div>
+
+<div class="phase">
+  <h3>Phase 1: 名前の衝突を解消（<code>src/transcription/</code> → <code>src/whisper_backends/</code>）</h3>
+  <table>
+    <tr><th>ToDo</th><th>内容</th><th>状態</th></tr>
+    <tr><td>1-1</td><td><code>git mv src/transcription src/whisper_backends</code></td><td><span class="status done">完了</span></td></tr>
+    <tr><td>1-2</td><td>import の書き換え（<code>src/diarization/processor.py</code>, <code>transcript.py</code>, <code>spark/server.py</code>, テスト2件）</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>1-3</td><td>テスト確認（期待値は変えない。import だけ）</td><td><span class="status done">完了</span></td></tr>
+  </table>
+</div>
+
+<div class="phase">
+  <h3>Phase 2: 窓口4 <code>src/subtitle_gen.py</code></h3>
+  <table>
+    <tr><th>ToDo</th><th>内容</th><th>状態</th></tr>
+    <tr><td>2-1</td><td><code>git mv src/subtitle/exporter.py src/subtitle_gen.py</code>、公開名を <code>generate_srt</code> に統一</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>2-2</td><td>呼び出し元の更新（<code>web/routes/generation.py</code>、README のコマンド例）</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>2-3</td><td><code>tests/test_subtitle_export.py</code> の import 更新 → テスト確認</td><td><span class="status done">完了</span></td></tr>
+  </table>
+</div>
+
+<div class="phase">
+  <h3>Phase 3: 窓口3 <code>src/matching.py</code></h3>
+  <table>
+    <tr><th>ToDo</th><th>内容</th><th>状態</th></tr>
+    <tr><td>3-1</td><td><code>git mv src/subtitle/matcher.py src/matching.py</code>（import 順序のコメントも維持）</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>3-2</td><td><code>web/converters.py::txt_to_script_csv_bytes</code> を <code>script_csv_from_text</code> として移設</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>3-3</td><td><code>web/routes/matching.py</code> の別プロセス起動先を <code>python -m src.matching</code> に変更</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>3-4</td><td><code>tests/conftest.py</code>・<code>test_web_matching.py</code>・<code>test_web_converters.py</code> の差し替え先を更新 → テスト確認</td><td><span class="status done">完了</span></td></tr>
+  </table>
+</div>
+
+<div class="phase">
+  <h3>Phase 4: 窓口2 <code>src/speaker_verification.py</code></h3>
+  <table>
+    <tr><th>ToDo</th><th>内容</th><th>状態</th></tr>
+    <tr><td>4-1</td><td>新規作成。<code>web/identification.py</code> の中身と、<code>diarization/clusters.py</code> への窓口関数4つをまとめる</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>4-2</td><td><code>src/web/identification.py</code> を削除し、<code>web/routes/*</code>・<code>cli/runner.py</code> の参照を差し替え</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>4-3</td><td>テスト（<code>conftest.py</code> の差し替え先、<code>test_web_transcription.py</code>、<code>test_web_unknowns.py</code>）更新 → テスト確認</td><td><span class="status done">完了</span></td></tr>
+  </table>
+</div>
+
+<div class="phase">
+  <h3>Phase 5: 窓口1 <code>src/transcription.py</code></h3>
+  <table>
+    <tr><th>ToDo</th><th>内容</th><th>状態</th></tr>
+    <tr><td>5-1</td><td>新規作成。<code>web/routes/transcription.py</code> の実行手順（<code>_run_transcription</code> 相当）と <code>csv_to_srt_with_speaker</code> を移設</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>5-2</td><td><code>web/routes/transcription.py</code> を HTTP 層だけに縮小（425行 → 約230行）。ジョブ管理・ログ流しは Web 側に残す</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>5-3</td><td><code>src/web/converters.py</code> を削除（2関数とも移設済みになるため）</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>5-4</td><td><code>cli/runner.py</code> も窓口1 を呼ぶ形に統一（CLI の出力は従来どおり CSV ＋ RTTM）</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>5-5</td><td>テスト（<code>conftest.py</code>, <code>test_web_transcription.py</code>, <code>test_web_converters.py</code>, <code>test_entrypoints.py</code>）更新 → テスト確認</td><td><span class="status done">完了</span></td></tr>
+  </table>
+</div>
+
+<div class="phase">
+  <h3>Phase 6: 余り物の撤去（<span class="status done">削除の承認取得ずみ</span>）</h3>
+  <table>
+    <tr><th>ToDo</th><th>内容</th><th>状態</th></tr>
+    <tr><td>6-1</td><td><code>src/diarization/interactive.py</code>（303行）を削除。<code>AudioProcessor</code> の <code>interactive_unknown_resolve</code> 引数と分岐も撤去</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>6-2</td><td>到達不能になる <code>clusters.recompute_distances_for_cluster</code> / <code>remap_remaining_unknowns</code>（57行）と対応テストを削除</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>6-3</td><td><code>TranscriptionOptions.mlx_model</code> と後方互換の分岐を削除（画面が送っていない項目）</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>6-4</td><td><code>tools/check_transcript_ms_integer.py</code>（使い捨て調査スクリプト）の削除可否を確認</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>6-5</td><td>古い作業ツリー <code>.claude/worktrees/romantic-hugle-02161c</code>（2026-05 の旧コード）の整理可否を確認</td><td><span class="status done">完了</span></td></tr>
+  </table>
+</div>
+
+<div class="phase">
+  <h3>Phase 7: 仕上げ</h3>
+  <table>
+    <tr><th>ToDo</th><th>内容</th><th>状態</th></tr>
+    <tr><td>7-1</td><td>README のプロジェクト構成・CLI コマンド例を実態に合わせる（<code>src/spark/</code> は「未使用のまま維持」と明記）</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>7-2</td><td><code>ruff check .</code> / <code>ruff format .</code></td><td><span class="status done">完了</span></td></tr>
+    <tr><td>7-3</td><td>全テスト（500件）確認、出力の目視確認（SRT 1本・対応表1本）</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>7-4</td><td>コミット分割（Phase ごと。機能追加は混ぜない）</td><td><span class="status todo">未着手</span>（クライアント確認待ち）</td></tr>
+  </table>
+</div>
+
+<h2>8. テスト方針</h2>
+<p>
+これは<strong>振る舞いを変えない整理</strong>なので、新しいテストは原則書かない（TDD の Red を作る対象が無い）。
+やることは次の3つ。
+</p>
+<ol>
+  <li>既存 500 件が<strong>期待値そのままで</strong>通ることを各フェーズで確認する。</li>
+  <li>import 先・差し替え先（<code>tests/conftest.py</code>）の変更だけを追従させる。期待値（assert）は触らない。</li>
+  <li>撤去する機能（Phase 6）のテストは、機能ごと削除する。<strong>「通らないから消す」ではなく「機能が無くなったから消す」</strong>。削除するテストの一覧は実施時に提示する。</li>
+</ol>
+<p>窓口4つには、入口として呼べることを確かめる最小のテストを足す（各1〜2件、重いモデルはモック）。</p>
+
+<h2>9. 見込みの行数</h2>
+<table>
+  <tr><th>項目</th><th>変化</th></tr>
+  <tr><td><code>interactive.py</code> 撤去</td><td>-303</td></tr>
+  <tr><td>到達不能になるクラスタ関数</td><td>-57</td></tr>
+  <tr><td><code>web/identification.py</code> 統合</td><td>-54</td></tr>
+  <tr><td><code>web/converters.py</code> 統合</td><td>-20（移設分を除いた純減）</td></tr>
+  <tr><td>窓口4ファイルの新設・移設</td><td>+10 程度（大半は移設）</td></tr>
+  <tr><td><strong>合計</strong></td><td><strong>約 -420行（7,136 → 約6,700行）</strong></td></tr>
+</table>
+<p class="out">
+※ 行数を減らすことが目的ではない。目的は「主要な流れが4ファイルで追える」こと。
+</p>
+
+<h2>10. 実施結果（2026-11-24）</h2>
+
+<h3>10-1. テストとリンタ</h3>
+<table>
+  <tr><th>項目</th><th>結果</th></tr>
+  <tr><td><code>uv run pytest -q</code></td><td><strong>486 passed</strong>（着手前 500 → 撤去した機能のテスト 18件を削除、窓口の新規テスト 4件を追加）</td></tr>
+  <tr><td><code>uv run ruff check .</code></td><td><code>All checks passed!</code></td></tr>
+  <tr><td><code>uv run ruff format</code></td><td>今回触った4ファイルを整形。<code>tests/test_web_unknowns.py</code> は<strong>着手前から未整形</strong>のため今回は触っていない（無関係な変更を混ぜないため）</td></tr>
+</table>
+
+<h3>10-2. 実ファイルでの動作確認</h3>
+<ul>
+  <li><strong>窓口3 → 窓口4</strong>（CLI）: 3行の台本CSV＋3ブロックのSRTで <code>python -m src.matching</code> →
+      対応表CSV（マッチング 3/3・100%）→ <code>python -m src.subtitle_gen</code> → 字幕SRT
+      （<code>(太郎)おはようございます</code> の形式）まで通した。</li>
+  <li><strong>Web UI</strong>: <code>uvicorn app:app</code> を起動し、<code>/</code>・<code>/matching</code>・
+      <code>/generation</code>・<code>/databases</code> が 200 を返すことを確認。
+      Step 3 は実際に POST して「確認用.srt（3 件の字幕）を作りました」まで到達。</li>
+  <li><strong>窓口1（文字起こし）は未確認。</strong> pyannote と Whisper の実行が必要なため、
+      Spark の実機で確認する。ロジック層はテスト（モック）で通っている。</li>
+</ul>
+
+<h3>10-3. 仕様書との差分（予測が外れた点）</h3>
+<table>
+  <tr><th>項目</th><th>予測</th><th>実際</th><th>理由</th></tr>
+  <tr>
+    <td><code>src/</code> の行数</td><td>約 -420行</td><td><strong>-209行</strong>（7,136 → 6,927）</td>
+    <td>撤去は予測どおり（-472行）だったが、窓口1（148行）と窓口2（90行）を新しく書いた分が戻ってきた。
+        窓口3・4 は移設なので増減なし。</td>
+  </tr>
+  <tr>
+    <td><code>web/routes/transcription.py</code></td><td>約230行</td><td><strong>410行</strong>（425行から -15）</td>
+    <td>重い処理の実行手順は窓口へ出せたが、残りはフォーム定義・アップロード処理・
+        非同期ジョブの登録／ログ流し／状態組み立て・画面断片の描画で、すべて Web 固有。
+        行数を減らすためだけに分割はしていない（規約3.1）。600行の目安内。</td>
+  </tr>
+  <tr>
+    <td>窓口2 の関数</td><td>4つ（<code>verify_clip</code> / <code>save_unknown_clips</code> を含む）</td>
+    <td><strong>2つ</strong>（<code>load_verifier</code> / <code>verify_segments</code>）</td>
+    <td>残り2つは「既存メソッドをそのまま呼ぶだけ」の包み紙になり、まさに今回消したい
+        オーバーエンジニアリングだったため作らなかった。</td>
+  </tr>
+</table>
+
+<h3>10-4. 振る舞いが変わった点（1件）</h3>
+<div class="banner warn">
+  <p style="margin-bottom:0">
+    <strong>CLI が字幕 SRT も書き出すようになった。</strong>
+    <code>main.py</code> は窓口1 を通るようになったため、従来の CSV・RTTM に加えて
+    同じ名前の <code>.srt</code> が増える（例: <code>result.csv</code> → <code>result.srt</code>）。
+    ファイルが1つ増えるだけで既存の出力は変わらない。CLI の出力をそのまま Step 2 の
+    マッチングに渡せるようになる利点があるため、こうした。README に追記ずみ。
+  </p>
+</div>
+
+<h3>10-5. ついでに分かったこと</h3>
+<p>
+削除した古い作業ツリー <code>.claude/worktrees/romantic-hugle-02161c</code> は、
+<strong>gitlink（モード 160000）としてリポジトリにコミットされていた</strong>。
+作業ツリーが誤って追跡対象に入っていたもの。削除によりこのエントリも消える。
+</p>
+
+<h2>11. やらないこと</h2>
+<ul>
+  <li><strong>マッチングのアルゴリズムは触らない。</strong>N-gram・文埋め込み・WLIS の計算は1行も変えない。</li>
+  <li><strong>モデルや既定値を変えない。</strong>閾値 0.5、Whisper large-v3、pyannote 3.1 のまま。</li>
+  <li><strong>UI を変えない。</strong>画面・操作手順・出力ファイル名は現状どおり。</li>
+  <li><strong>新しい依存パッケージを入れない。</strong></li>
+  <li><strong><code>src/spark/</code> を消さない。</strong>未使用だが将来構想のため維持（確認済み）。</li>
+  <li><strong>頼まれていない汎用化をしない。</strong>窓口は「今ある呼び出しをそのまま通す」だけにする。</li>
+</ul>
+
+<footer class="page">
+  2026-11-24 作成・実装（Phase 1〜7-3 完了。コミットのみ未実施）。全ToDoが完了したら archive/ へ移す。
+</footer>
+
+</div>
+</body>
+</html>

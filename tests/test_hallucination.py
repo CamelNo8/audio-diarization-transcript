@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.transcription.hallucination import HallucinationFilter, load_phrases
+from src.whisper_backends.hallucination import HallucinationFilter, load_phrases
 
 
 @pytest.fixture

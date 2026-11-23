@@ -1,13 +1,16 @@
-"""編集済みの対応表 CSV から字幕 SRT を生成する。
+"""窓口4: 対応表 CSV から字幕 SRT を生成する。
 
 対応表（:mod:`src.subtitle.report` が出力し、人が編集したもの）の
 ``start_time`` / ``end_time`` / ``speaker`` / ``subtitle_text`` の4列だけを使う。
+
+入口は :func:`generate_srt`（対応表CSV → 字幕SRT）。
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
 from src.common.csv_io import read_dict_rows
 from src.common.logging import configure_logging, get_logger
@@ -19,6 +22,23 @@ REQUIRED_COLUMNS = ["start_time", "end_time", "speaker", "subtitle_text"]
 
 #: このうち1つでも空なら、その行は字幕にできない（``speaker`` は空でもよい）。
 _ESSENTIAL_COLUMNS = ["start_time", "end_time", "subtitle_text"]
+
+
+def generate_srt(mapping_csv_path: str | Path, srt_path: str | Path) -> int:
+    """対応表 CSV から字幕 SRT を生成する。
+
+    Args:
+        mapping_csv_path: 入力する編集済みの対応表 CSV のパス。
+        srt_path: 出力する字幕 SRT のパス。
+
+    Returns:
+        書き出した字幕の件数。対応表を読めなかった場合は 0（SRT は書かない）。
+    """
+    subtitle_data = load_subtitle_data(str(mapping_csv_path))
+    if not subtitle_data:
+        return 0
+    write_srt_file(str(srt_path), generate_srt_content(subtitle_data))
+    return len(subtitle_data)
 
 
 def load_subtitle_data(input_csv_path: str) -> list[dict[str, str]]:
@@ -157,12 +177,9 @@ def main() -> int:
     configure_logging()
     args = parser.parse_args()
 
-    subtitle_data = load_subtitle_data(args.input_csv)
-    if not subtitle_data:
+    if generate_srt(args.input_csv, args.output_srt) == 0:
         logger.error("データが読み込めなかったため、処理を終了します。")
         return 1
-
-    write_srt_file(args.output_srt, generate_srt_content(subtitle_data))
     return 0
 
 

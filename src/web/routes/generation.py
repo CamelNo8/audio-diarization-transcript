@@ -10,11 +10,7 @@ from fastapi.responses import HTMLResponse
 from src.common.filenames import safe_output_name
 from src.common.logging import get_logger
 from src.config import DEFAULT_SUBTITLE_SRT_NAME
-from src.subtitle.exporter import (
-    generate_srt_content,
-    load_subtitle_data,
-    write_srt_file,
-)
+from src.subtitle_gen import generate_srt
 from src.web import storage
 from src.web.errors import WebInputError
 from src.web.templating import render_error, templates
@@ -38,17 +34,15 @@ async def process_generation(
         csv_name = Path(edited_csv.filename).name
         csv_path = storage.save_upload(edited_csv, f"upload_edited_{csv_name}")
 
-        subtitle_data = load_subtitle_data(str(csv_path))
-        if not subtitle_data:
-            raise WebInputError(
-                "字幕データの読み込みに失敗しました。CSVフォーマットを確認してください。"
-            )
-
         # 出力名はフォームから来るため、パス結合の前に検証する（規約7.1）
         output_path = storage.temp_path(
             safe_output_name(output_srt_name, DEFAULT_SUBTITLE_SRT_NAME)
         )
-        write_srt_file(str(output_path), generate_srt_content(subtitle_data))
+        subtitle_count = generate_srt(csv_path, output_path)
+        if subtitle_count == 0:
+            raise WebInputError(
+                "字幕データの読み込みに失敗しました。CSVフォーマットを確認してください。"
+            )
         if not output_path.exists():
             raise WebInputError("SRT生成に失敗しました。")
 
@@ -58,7 +52,7 @@ async def process_generation(
             {
                 "filename": output_path.name,
                 "download_url": f"/download/{output_path.name}",
-                "count": len(subtitle_data),
+                "count": subtitle_count,
             },
         )
 

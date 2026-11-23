@@ -2,7 +2,7 @@
 
 対応表は「マッチした行」「使われなかった音声認識」「使われなかった台本」を
 1つの時系列にまとめたもので、人が編集したうえで字幕生成
-（:mod:`src.subtitle.exporter`）に渡す中間成果物にあたる。
+（:mod:`src.subtitle_gen`）に渡す中間成果物にあたる。
 """
 
 from __future__ import annotations

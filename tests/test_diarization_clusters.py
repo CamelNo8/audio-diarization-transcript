@@ -1,4 +1,4 @@
-"""未知話者クラスタの永続化・再照合の特性テスト。
+"""未知話者クラスタの永続化の特性テスト。
 
 リファクタリング前の ``audio_processor.py`` の振る舞いを固定する。
 分割後の ``src/diarization/clusters.py`` に対して同じ期待値を保つ。
@@ -10,38 +10,12 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-import numpy as np
 import pytest
 from pyannote.core import Segment
 
 from src.diarization import clusters
 from src.diarization.clusters import ClusterAssignments
-from src.diarization.interactive import sanitize_speaker_name
 from src.diarization.processor import create_transcript_csv_path
-
-
-class _擬似識別器:
-    """SpeakerIdentifier の代わり。埋め込み→照合結果の対応表を持つ。"""
-
-    def __init__(self, 照合結果: dict | None = None, 失敗する: bool = False):
-        self.照合結果 = 照合結果 or {}
-        self.失敗する = 失敗する
-        self.unknown_counter = 1
-
-    def identify_speaker_with_distances(self, embedding):
-        if self.失敗する:
-            raise RuntimeError("照合に失敗しました")
-        key = float(embedding[0][0])
-        return self.照合結果.get(key, (self._next_unknown_name(), None, None))
-
-    def _next_unknown_name(self) -> str:
-        name = f"Unknown_{self.unknown_counter:02d}"
-        self.unknown_counter += 1
-        return name
-
-
-def _埋め込み(値: float) -> np.ndarray:
-    return np.asarray([[値, 0.0]], dtype=np.float32)
 
 
 @pytest.fixture
@@ -186,105 +160,6 @@ class Test未知クラスタの永続化:
         割り当て.set_speaker("SPEAKER_01", "Unknown_01", None, None)
 
         assert clusters.persist_unknown_clusters(割り当て, None, tmp_path / "c") == []
-
-
-class Testクラスタの距離再計算:
-    """recompute_distances_for_cluster — 登録直後に全候補距離を埋め直す。"""
-
-    def test_照合結果の距離と候補が返る(self, 割り当て):
-        識別器 = _擬似識別器({1.0: ("太郎", 0.05, {"太郎": 0.05})})
-        割り当て.embeddings = {"SPEAKER_01": _埋め込み(1.0)}
-
-        assert clusters.recompute_distances_for_cluster(
-            識別器, 割り当て, "SPEAKER_01"
-        ) == (0.05, {"太郎": 0.05})
-
-    def test_識別器が無ければNoneの組を返す(self, 割り当て):
-        割り当て.embeddings = {"SPEAKER_01": _埋め込み(1.0)}
-
-        assert clusters.recompute_distances_for_cluster(
-            None, 割り当て, "SPEAKER_01"
-        ) == (None, None)
-
-    def test_埋め込みが無ければNoneの組を返す(self, 割り当て):
-        assert clusters.recompute_distances_for_cluster(
-            _擬似識別器(), 割り当て, "SPEAKER_99"
-        ) == (None, None)
-
-    def test_照合が例外を投げてもNoneの組を返す(self, 割り当て):
-        割り当て.embeddings = {"SPEAKER_01": _埋め込み(1.0)}
-
-        assert clusters.recompute_distances_for_cluster(
-            _擬似識別器(失敗する=True), 割り当て, "SPEAKER_01"
-        ) == (None, None)
-
-
-class Test残りの未知クラスタの再マッピング:
-    """remap_remaining_unknowns — 新規登録後に他の Unknown を照合し直す。"""
-
-    def test_閾値内にヒットしたUnknownが実名に置き換わる(self, 割り当て):
-        識別器 = _擬似識別器({2.0: ("太郎", 0.2, {"太郎": 0.2})})
-        割り当て.set_speaker("SPEAKER_01", "Unknown_01", None, None)
-        割り当て.embeddings = {"SPEAKER_01": _埋め込み(2.0)}
-
-        更新 = clusters.remap_remaining_unknowns(識別器, 割り当て)
-
-        assert 更新 == [("SPEAKER_01", "太郎", 0.2)]
-        assert 割り当て.speaker_mapping["SPEAKER_01"] == "太郎"
-        assert 割り当て.distance_mapping["SPEAKER_01"] == 0.2
-
-    def test_再照合でもUnknownならもとのラベルが維持される(self, 割り当て):
-        識別器 = _擬似識別器({2.0: ("Unknown_07", 0.9, {"太郎": 0.9})})
-        割り当て.set_speaker("SPEAKER_01", "Unknown_01", None, None)
-        割り当て.embeddings = {"SPEAKER_01": _埋め込み(2.0)}
-
-        assert clusters.remap_remaining_unknowns(識別器, 割り当て) == []
-        assert 割り当て.speaker_mapping["SPEAKER_01"] == "Unknown_01"
-
-    def test_既に実名のクラスタは触られない(self, 割り当て):
-        識別器 = _擬似識別器({2.0: ("花子", 0.1, {"花子": 0.1})})
-        割り当て.set_speaker("SPEAKER_00", "太郎", 0.05, {"太郎": 0.05})
-        割り当て.embeddings = {"SPEAKER_00": _埋め込み(2.0)}
-
-        clusters.remap_remaining_unknowns(識別器, 割り当て)
-
-        assert 割り当て.speaker_mapping["SPEAKER_00"] == "太郎"
-
-    def test_埋め込みが無いクラスタは飛ばされる(self, 割り当て):
-        割り当て.set_speaker("SPEAKER_01", "Unknown_01", None, None)
-
-        clusters.remap_remaining_unknowns(_擬似識別器(), 割り当て)
-
-        assert 割り当て.speaker_mapping["SPEAKER_01"] == "Unknown_01"
-
-    def test_識別器が無ければ何も起きない(self, 割り当て):
-        割り当て.set_speaker("SPEAKER_01", "Unknown_01", None, None)
-
-        assert clusters.remap_remaining_unknowns(None, 割り当て) == []
-        assert 割り当て.speaker_mapping["SPEAKER_01"] == "Unknown_01"
-
-    def test_照合が例外を投げてもラベルは維持される(self, 割り当て):
-        割り当て.set_speaker("SPEAKER_01", "Unknown_01", None, None)
-        割り当て.embeddings = {"SPEAKER_01": _埋め込み(2.0)}
-
-        clusters.remap_remaining_unknowns(_擬似識別器(失敗する=True), 割り当て)
-
-        assert 割り当て.speaker_mapping["SPEAKER_01"] == "Unknown_01"
-
-
-class Test話者名の検証:
-    """sanitize_speaker_name — 対話登録でファイル名に使える名前だけ通す。"""
-
-    def test_前後の空白が落ちる(self):
-        assert sanitize_speaker_name("  太郎  ") == "太郎"
-
-    @pytest.mark.parametrize("raw", ["", "   "])
-    def test_空の入力はNoneになる(self, raw):
-        assert sanitize_speaker_name(raw) is None
-
-    @pytest.mark.parametrize("raw", ["太郎/花子", "a\\b", "a:b", "a*b", "a?b"])
-    def test_ファイル名に使えない文字を含むとNoneになる(self, raw):
-        assert sanitize_speaker_name(raw) is None
 
 
 class Test文字起こしCSVパスの生成:

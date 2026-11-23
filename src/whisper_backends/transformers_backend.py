@@ -13,7 +13,7 @@ from typing import Any
 import torch
 
 from src.common.logging import get_logger
-from src.transcription.model_ids import to_hf_whisper_repo
+from src.whisper_backends.model_ids import to_hf_whisper_repo
 
 logger = get_logger(__name__)
 

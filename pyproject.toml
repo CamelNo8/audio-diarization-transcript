@@ -18,7 +18,7 @@ dependencies = [
     "pyannote-audio>=3.3.0,<4.0",
     "omegaconf>=2.3.0",  # pyannote 4.x で依存から外れたためのセーフティ
     "scipy>=1.10.0",
-    # Whisper 実装はプラットフォームで切り替える（src/transcription/）
+    # Whisper 実装はプラットフォームで切り替える（src/whisper_backends/）
     #   Mac (Apple Silicon) … mlx-whisper（Metal 最適化）
     #   Windows / Linux      … faster-whisper（CUDA 対応・CPU フォールバック）
     "mlx-whisper>=0.2.0 ; sys_platform == 'darwin' and platform_machine == 'arm64'",
@@ -72,14 +72,13 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-# tools/ の調査スクリプトを収集対象に含めない
 testpaths = ["tests"]
 pythonpath = ["."]
 
 [tool.ruff]
 line-length = 88
 target-version = "py310"
-# .claude/worktrees には過去のブランチのコピーが入っているため対象外
+# .claude には作業ツリーのコピーが入ることがあるため対象外
 exclude = [".venv", ".claude", "temp", "voice_databases", "embedding_cache"]
 
 [tool.ruff.lint]

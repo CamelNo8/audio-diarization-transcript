@@ -24,15 +24,17 @@ from src.config import (
     DEFAULT_SPEAKER_THRESHOLD,
     DEFAULT_TRANSCRIPTION_SRT_NAME,
     DEFAULT_WHISPER_MODEL,
-    DENOISE_MODELS,
 )
-from src.diarization.processor import AudioProcessor
 from src.diarization.registry import SUPPORTED_REGISTRY_EXTENSIONS
+from src.speaker_verification import load_verifier
+from src.transcription import (
+    TranscriptionOutputs,
+    TranscriptionSettings,
+    transcribe_to_srt,
+)
 from src.web import jobs, storage
-from src.web.converters import csv_to_srt_with_speaker
 from src.web.errors import WebInputError
-from src.web.forms import parse_opt_int
-from src.web.identification import load_identifier, resolve_hf_token
+from src.web.forms import parse_opt_int, resolve_hf_token
 from src.web.log_capture import capture_root_logs
 from src.web.templating import render_error, templates
 
@@ -49,15 +51,6 @@ POLL_INTERVAL = "2s"
 
 #: 処理中のログをジョブへ書き出す間隔（秒）。ポーリング間隔に合わせる。
 LOG_FLUSH_INTERVAL_SEC = 2.0
-
-
-@dataclass(frozen=True)
-class TranscriptionResult:
-    """文字起こしの生成物。"""
-
-    csv_path: Path
-    srt_path: Path
-    unknown_clusters: List[Dict[str, Any]]
 
 
 @dataclass(frozen=True)
@@ -82,7 +75,6 @@ class TranscriptionOptions:
     threshold: float = Form(DEFAULT_SPEAKER_THRESHOLD)
     num_speakers: str = Form("")
     embedding_model: str = Form(DEFAULT_EMBEDDING_MODEL)
-    mlx_model: str = Form(DEFAULT_WHISPER_MODEL)
     whisper_backend: str = Form("auto")  # "auto" / "mlx" / "faster"
     whisper_quality: str = Form("")  # "large-v3" / "medium" / "small" / "__custom__"
     whisper_custom_model: str = Form("")
@@ -94,12 +86,12 @@ class TranscriptionOptions:
     def whisper_model(self) -> str:
         """Whisper のモデル ID を決める。
 
-        品質ドロップダウンを優先し、カスタム指定なら自由入力を使う。
-        どちらも空なら後方互換で旧 ``mlx_model`` フィールドの値を使う。
+        品質ドロップダウンを優先し、``__custom__`` のときだけ自由入力を使う。
+        どちらも空なら既定モデル。
         """
         if self.whisper_quality == "__custom__":
-            return self.whisper_custom_model.strip() or self.mlx_model
-        return self.whisper_quality or self.mlx_model
+            return self.whisper_custom_model.strip() or DEFAULT_WHISPER_MODEL
+        return self.whisper_quality or DEFAULT_WHISPER_MODEL
 
 
 @router.post("/process/transcription", response_class=HTMLResponse)
@@ -184,7 +176,6 @@ def run_job(run: _TranscriptionRun) -> None:
             )
             return
 
-        csv_to_srt_with_speaker(result.csv_path, result.srt_path)
         jobs.save_job(run.job_id, _build_job(run, result, log_text))
     except Exception as e:
         logger.exception("transcription failed")
@@ -291,47 +282,40 @@ def _resolve_output_paths(output_srt_name: str) -> Tuple[Path, Path]:
     return storage.temp_path(csv_name), storage.temp_path(srt_name)
 
 
-def _run_transcription(run: _TranscriptionRun) -> Optional[TranscriptionResult]:
+def _run_transcription(run: _TranscriptionRun) -> Optional[TranscriptionOutputs]:
     """文字起こしを実行して生成物を返す。失敗時は ``None``。"""
-    options = run.options
-    csv_path, srt_path = _resolve_output_paths(options.output_srt_name)
+    csv_path, srt_path = _resolve_output_paths(run.options.output_srt_name)
 
     identifier = None
     if run.registry_dir is not None:
-        identifier = load_identifier(
+        identifier = load_verifier(
             run.registry_dir,
-            model_name=options.embedding_model,
             hf_token=run.hf_token,
-            threshold=options.threshold,
+            model_name=run.options.embedding_model,
+            threshold=run.options.threshold,
         )
 
-    separator_model = DENOISE_MODELS.get(options.denoise_mode)
-    with AudioProcessor(
-        audio_file=run.audio_path,
-        output_csv_path=csv_path,
-        mlx_model_id=options.whisper_model,
-        pyannote_model_id=options.pyannote_model_id,
-        hf_token=run.hf_token,
+    return transcribe_to_srt(
+        run.audio_path,
+        srt_path,
+        csv_path,
+        settings=_to_settings(run),
         identifier=identifier,
-        registry_dir=run.registry_dir,
-        interactive_unknown_resolve=False,
-        denoise=separator_model is not None,
-        separator_model=separator_model,
-        whisper_backend=options.whisper_backend,
-    ) as processor:
-        success = processor.process_and_save_to_csv(
-            known_num_speakers=parse_opt_int(options.num_speakers)
-        )
-        # Unknown クラスタの音声を永続化（成功時のみ）
-        unknown_clusters = (
-            processor.persist_unknown_clusters(jobs.job_dir(run.job_id))
-            if success
-            else []
-        )
+        unknown_clusters_dir=jobs.job_dir(run.job_id),
+    )
 
-    if not success or not csv_path.exists():
-        return None
-    return TranscriptionResult(csv_path, srt_path, unknown_clusters)
+
+def _to_settings(run: _TranscriptionRun) -> TranscriptionSettings:
+    """フォーム入力を窓口に渡す設定へ変換する。"""
+    options = run.options
+    return TranscriptionSettings(
+        model_id=options.whisper_model,
+        backend=options.whisper_backend,
+        diarization_model_id=options.pyannote_model_id,
+        hf_token=run.hf_token,
+        num_speakers=parse_opt_int(options.num_speakers),
+        denoise_mode=options.denoise_mode,
+    )
 
 
 @contextmanager
@@ -378,7 +362,7 @@ def _initial_job(run: _TranscriptionRun) -> Dict[str, Any]:
 
 
 def _build_job(
-    run: _TranscriptionRun, result: TranscriptionResult, log_text: str
+    run: _TranscriptionRun, result: TranscriptionOutputs, log_text: str
 ) -> Dict[str, Any]:
     """完了後のジョブ状態を組み立てる。ラベル付け画面もこれを読む。"""
     for cluster in result.unknown_clusters:

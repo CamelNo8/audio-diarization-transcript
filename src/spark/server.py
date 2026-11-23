@@ -156,8 +156,6 @@ def _transcribe(job: _JobRequest) -> dict:
         pyannote_model_id=job.options.pyannote_model_id,
         hf_token=job.hf_token,
         identifier=None,  # 照合は PC 側で行う
-        registry_dir=None,
-        interactive_unknown_resolve=False,
         denoise=separator_model is not None,
         separator_model=separator_model,
         whisper_backend="faster",  # Linux/CUDA は faster-whisper 固定

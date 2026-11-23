@@ -6,7 +6,25 @@ HTML フォームの値は常に文字列で届く。空欄と入力ミスを同
 
 from __future__ import annotations
 
+import os
 from typing import Optional
+
+from src.web.errors import WebInputError
+
+
+def resolve_hf_token(override: str) -> str:
+    """Hugging Face トークンを決める。詳細設定の入力を環境変数より優先する。
+
+    Raises:
+        WebInputError: どちらにも設定が無い場合。
+    """
+    token = override or os.getenv("HF_TOKEN", "")
+    if not token:
+        raise WebInputError(
+            "Hugging Face Token が設定されていません。"
+            ".env の HF_TOKEN または詳細設定で指定してください。"
+        )
+    return token
 
 
 def parse_opt_float(raw: str) -> Optional[float]:

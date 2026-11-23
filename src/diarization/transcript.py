@@ -15,7 +15,7 @@ from pyannote.core import Segment
 from src.common.logging import get_logger
 from src.common.timecode import format_time
 from src.diarization.clusters import ClusterAssignments, dominant_cluster
-from src.transcription.hallucination import HallucinationFilter
+from src.whisper_backends.hallucination import HallucinationFilter
 
 logger = get_logger(__name__)
 
