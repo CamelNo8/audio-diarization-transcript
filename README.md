@@ -311,55 +311,15 @@ dialogue,話者B,お疲れ様です
 
 ---
 
-## 実験用ツール（クリップ選定と評価）
+## 話者分離結果（RTTM）
 
-研究の評価実験（予稿 4.3 / 4.5）を回すための CLI です。**アプリ本体の処理系ではありません。**
+文字起こしの実行時に、話者分離の結果を RTTM としても保存します（出力CSVと同じ場所に `<CSV名>.rttm`）。
+文字起こしCSVは「1区間に話者1人」なので同時刻の重なりが残りませんが、RTTM には残るので、
+あとから重なりを確認できます。保存に失敗しても字幕生成は続行します。
 
-### ① 正解字幕から5分クリップ2本を選ぶ
-
-各動画から「重なり・話者交替が多い区間（hard）」と「落ち着いた区間（calm）」を、**発話境界に合わせて**自動で選びます。入力は**正解字幕SRTだけ**です（音声特徴DBは見ません）。
-
-```bash
-uv run python -m src.evaluation.clip_selector --srt "字幕/転スラ.srt" --video 転スラ1話.mp4 --out-csv docs/experiment/clips.csv --append --out-srt-dir docs/experiment/gt
-```
-
-- 話者は `（話者名）` からのみ拾い、`[…]` と `（軽快なBGM）` のような効果音・音楽は除外します。判定結果は毎回一覧表示されるので、誤りは `--speaker` / `--non-speech`（どちらも完全一致）で上書きしてください。
-- `--target-speakers N` を付けると、話者数が N から離れた区間にペナルティをかけます。ただし**既定では使わないことを推奨します**（後述）。
-- `--out-srt-dir` には、**先頭を 0 秒に振り直した正解SRT**が `<名前>_hard.srt` / `<名前>_calm.srt` として書き出されます。そのまま②の `--gt` に渡せます。
-- 動画・音声の切り出しは行いません。ffmpeg コマンドを表示するだけなので、確認してから実行してください。
-- 動画が10分程度しかないと「重ならない2本が取れない」ことがあります。その場合は `--length 290 --tolerance 30` のように短く・緩めてください。
-
-#### 登場人数は揃えず、説明変数として記録する（`--target-speakers` を使わない理由）
-
-納品字幕9本で全探索した結果、**`--target-speakers` は話者数を揃えられないのに、hard と calm の難易度差だけを削ることが分かりました**（ペナルティなしで hard−calm の交替率差が +4.28 回/分、`--speaker-penalty 2.0` では +3.01 まで低下し、1番組では逆転）。話者数は「PIVOT は全区間2人・しくじり先生AIは最小でも8人」のように番組の性質でほぼ決まっており、区間の選び方では動かせないためです。
-
-**そこで人数を揃えることはせず、その区間に登場した人数を説明変数として記録します。** 予稿 4.3 の「結果を『アニメだから容易である』ではなく『重なり率が低く話者が固定されているから容易である』と説明する」という狙いには、揃えるよりも記録したほうが素直に効きます。
-
-記録される項目は次の3つです。
-
-| 出どころ | 列 | 内容 |
-|---|---|---|
-| ① `clips.csv` | `speaker_count` | その区間に登場した人数 |
-| ① `clips.csv` | `speaker_utterances` | 誰が何回喋ったか（`海:39 岡本:25 …` 発話数の多い順） |
-| ② `results.csv` | `registered_speaker_count` / `unregistered_speaker_count` | 登場人数のうち、音声特徴DBに登録済みの人数と未登録の人数（`--voice-db` から判定） |
-
-`speaker_utterances` を見れば「発話1件だけの通行人が人数を押し上げている」ことがすぐ分かるので、登場人数の大小をそのまま解釈せずに済みます。誰を音声特徴DBに登録するかは予稿 4.2 のとおり「名前を持つ主要登場人物」で決め、その結果は ② が `registered_speaker_count` として記録します。hard と calm で登録者が違うので、音声特徴DBは `voice_databases/転スラ_hard/` のようにクリップごとに分けてください。
-
-### ② アプリ生成字幕を正解字幕と突き合わせて評価する
-
-```bash
-uv run python -m src.evaluation.evaluator --gt docs/experiment/gt/転スラ_hard.srt --app temp/subtitles.srt --voice-db voice_databases/転スラ_hard --rttm temp/転スラ_hard.rttm --tolerance 0.3 0.5 1.0 --out-csv docs/experiment/results.csv --append --out-detail docs/experiment/転スラ_hard_detail.csv
-```
-
-- 対応付けは**本文テキスト**で行います。アプリ生成字幕は話者が変わったときだけ話者名を前置するため、剥がした後に直前の話者を引き継いで補完します。`(話者)本文`（最終字幕）と `[話者] 本文`（仮字幕）の両形式に対応します。
-- in点は `--tolerance` の**閾値ごとに**正解率を出します（許容ずれを事前の試行で決めるため）。
-- 話者の誤りは false negative（登録話者なのに `Unknown_NN`／空欄）と false positive（別人の名前を付けた）に分けて数えます。登録話者の判定には `--voice-db`（`*.wav` のファイル名。`田村_叫び声.wav` は `田村` に寄せる）または `--speakers` を使います。
-- `--rttm` を渡すと `overlap_time_ratio`（2人以上が同時に喋っている時間の割合）も出ます。これは**話者分離の出力**なので、正解字幕由来の `overlap_entry_ratio` と並べて読んでください（値が大きく食い違うクリップは、重なりの見落としが起きた候補です）。
-- `--out-detail` は1行1発話の突き合わせ結果（in点差・正解話者・アプリ話者・誤りの種別）、`--out-confusion` は「正解話者 × アプリ話者」のクロス表です。
-
-### 話者分離結果（RTTM）
-
-`overlap_time_ratio` の材料として、文字起こしの実行時に話者分離の結果を RTTM でも保存します（出力CSVと同じ場所に `<CSV名>.rttm`）。**Web UI の Step 1 では出力ファイル名をクリップ名にしておいてください**（既定の `transcription.srt` のままだと20本が互いに上書きします）。`転スラ_hard.srt` と入れると `temp/転スラ_hard.csv` と `temp/転スラ_hard.rttm` が残ります。文字起こしCSVは「1区間に話者1人」なので同時刻の重なりが残らないためです。保存に失敗しても字幕生成は続行します。
+**Web UI の Step 1 では出力ファイル名を素材ごとに変えてください。** 既定の `transcription.srt`
+のままだと、複数の素材が互いに上書きします。`転スラ.srt` と入れれば `temp/転スラ.csv` と
+`temp/転スラ.rttm` が残ります。
 
 ---
 
@@ -406,10 +366,6 @@ audio-diarization-transcript/
 │   │   ├── report.py           #   マッチ結果の CSV 出力・集計表示
 │   │   ├── matcher.py          #   マッチングの入口（別プロセスで実行される）
 │   │   └── exporter.py         #   対応表CSV → 字幕SRT
-│   ├── evaluation/             # 実験用（クリップ選定と評価。アプリ本体ではない）
-│   │   ├── srt_stats.py        #   正解字幕SRTの解析・説明変数・RTTMの重なり時間
-│   │   ├── clip_selector.py    #   正解字幕から5分クリップ2本（hard / calm）を選ぶ
-│   │   └── evaluator.py        #   in点・話者の評価と誤りの分類（FN / FP）
 │   ├── voice_db/registry.py    # 音声特徴データベース（作成・話者の追加/削除/改名）
 │   ├── web/                    # FastAPI + htmx の Web アプリ層
 │   │   ├── application.py      #   ルータ登録（create_app）

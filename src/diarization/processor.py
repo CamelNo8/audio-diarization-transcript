@@ -243,7 +243,7 @@ class AudioProcessor:
         return True
 
     def _write_diarization_rttm(self, diarization) -> None:
-        """話者分離の結果を RTTM としても残す（実験の重なり率算出用）。
+        """話者分離の結果を RTTM としても残す（重なりを後から確認するため）。
 
         字幕生成の成否とは無関係な副産物なので、失敗しても警告だけで続行する。
         """

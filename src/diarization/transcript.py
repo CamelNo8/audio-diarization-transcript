@@ -54,8 +54,8 @@ def write_rttm(diarization, assignments: ClusterAssignments, path: Path) -> None
     """話者分離の結果を RTTM として書き出す。
 
     文字起こし CSV は「Whisper の1区間に話者を1人だけ」割り当てた表なので、
-    同時刻に複数話者が居るという情報が残らない。実験の説明変数
-    （``overlap_time_ratio``）を出すために、分離結果そのものを保存する。
+    同時刻に複数話者が居るという情報が残らない。あとから重なりを確認できるよう、
+    分離結果そのものを保存する。
 
     話者名はクラスタIDではなく**照合後の話者名**を入れる（RTTM 単体で読めるように）。
 

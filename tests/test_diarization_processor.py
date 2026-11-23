@@ -13,7 +13,6 @@ from src.common.csv_io import read_rows
 from src.diarization import transcript
 from src.diarization.processor import AudioProcessor
 from src.diarization.transcript import CSV_HEADER
-from src.evaluation.srt_stats import compute_overlap_time_ratio, parse_rttm
 
 
 class _ダミー話者分離:
@@ -133,8 +132,17 @@ class _重なりのある話者分離:
         )
 
 
+def _RTTMの区間(rttm_path) -> list[tuple[float, float, str]]:
+    """RTTM の各行を (開始秒, 継続秒, 話者名) にして返す。"""
+    区間 = []
+    for line in rttm_path.read_text(encoding="utf-8").splitlines():
+        列 = line.split()
+        区間.append((float(列[3]), float(列[4]), 列[7]))
+    return 区間
+
+
 class Test話者分離結果のRTTM出力:
-    """実験の説明変数 overlap_time_ratio のため、重なりを残した結果を保存する。"""
+    """文字起こしCSVには残らない「同時刻の重なり」を RTTM に残す。"""
 
     def test_照合後の話者名でRTTMが書き出される(self, プロセッサ, monkeypatch):
         processor, 出力パス = プロセッサ
@@ -151,12 +159,11 @@ class Test話者分離結果のRTTM出力:
 
         rttm = 出力パス.with_suffix(".rttm")
         assert rttm.is_file()
-        segments = parse_rttm(rttm)
-        assert [s.speaker for s in segments] == ["三上", "大賢者"]
-        assert segments[0].start == pytest.approx(0.0)
-        assert segments[0].end == pytest.approx(4.0)
-        # 3.0〜4.0 の1秒が重なり、発話区間は 0.0〜5.0 の5秒
-        assert compute_overlap_time_ratio(segments) == pytest.approx(1.0 / 5.0)
+        # 3.0〜4.0 で2人が重なったまま、照合後の話者名で残る
+        assert _RTTMの区間(rttm) == [
+            (0.0, 4.0, "三上"),
+            (3.0, 2.0, "大賢者"),
+        ]
 
     def test_RTTM書き出しに失敗しても処理は完走する(self, プロセッサ, monkeypatch):
         processor, 出力パス = プロセッサ
@@ -169,5 +176,5 @@ class Test話者分離結果のRTTM出力:
 
         結果 = processor.process_and_save_to_csv()
 
-        assert 結果 is True, "RTTM は実験用の副産物であり、字幕生成の成否とは無関係"
+        assert 結果 is True, "RTTM は副産物であり、字幕生成の成否とは無関係"
         assert 出力パス.is_file()
