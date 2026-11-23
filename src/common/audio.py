@@ -87,6 +87,75 @@ def extract_audio(
     )
 
 
+def build_concat_command(src_paths: list[Path], dst: Path) -> list[str]:
+    """複数の音声を1本に繋ぐ ffmpeg コマンドを組み立てる。
+
+    入力ごとに ``aformat`` でサンプリングレートとチャンネル数を揃えてから繋ぐ。
+    揃えないと concat フィルタが「入力の形式が違う」として失敗するため。
+
+    Args:
+        src_paths: 繋ぐ音声ファイル。この順に連結される。
+        dst: 出力ファイル。既存ファイルは上書きする。
+
+    Returns:
+        subprocess へ渡すコマンドの引数リスト。
+
+    Raises:
+        ValueError: ``src_paths`` が空の場合。
+    """
+    if not src_paths:
+        raise ValueError("繋ぐクリップが1本もありません。1本以上を指定してください。")
+
+    layout = "mono" if TARGET_CHANNELS == 1 else "stereo"
+    aformat = f"aformat=sample_rates={TARGET_SAMPLE_RATE_HZ}:channel_layouts={layout}"
+
+    stages = [f"[{i}:a]{aformat}[a{i}]" for i in range(len(src_paths))]
+    inputs = "".join(f"[a{i}]" for i in range(len(src_paths)))
+    filter_complex = ";".join(stages) + f";{inputs}concat=n={len(src_paths)}:v=0:a=1"
+
+    cmd = ["ffmpeg", "-nostdin", "-loglevel", "error"]
+    for src in src_paths:
+        cmd += ["-i", str(src)]
+    cmd += ["-filter_complex", filter_complex]
+    cmd += ["-acodec", "pcm_s16le", "-y", str(dst)]
+    return cmd
+
+
+def concat_audio(src_paths: list[Path], dst: Path) -> None:
+    """ffmpeg で複数の音声を1本に繋ぐ。
+
+    Args:
+        src_paths: 繋ぐ音声ファイル。この順に連結される。
+        dst: 出力ファイル。既存ファイルは上書きする。
+
+    Raises:
+        ValueError: ``src_paths`` が空の場合。
+        FileNotFoundError: 入力ファイルが存在しない場合、
+            または ffmpeg が PATH に無い場合。
+        RuntimeError: ffmpeg が異常終了した場合（ffmpeg のエラー出力を含む）。
+    """
+    cmd = build_concat_command(src_paths, dst)
+
+    missing = [str(p) for p in src_paths if not Path(p).exists()]
+    if missing:
+        raise FileNotFoundError(
+            f"繋ぐ音声ファイルが見つかりません: {', '.join(missing)}"
+        )
+
+    try:
+        subprocess.run(
+            cmd,
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(
+            f"音声の連結に失敗しました（{len(src_paths)}本 → {dst.name}）: {e.stderr}"
+        ) from e
+
+
 def probe_duration_sec(audio_path: Path) -> Optional[float]:
     """ffprobe で音声長（秒）を取得する。
 

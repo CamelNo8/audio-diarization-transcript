@@ -16,6 +16,7 @@ import src.voice_db.registry as vdb
 from src.common.audio import extract_audio
 from src.common.files import remove_quietly
 from src.common.logging import get_logger
+from src.config import RECOMMENDED_REGISTRATION_SEC
 from src.web import storage
 from src.web.forms import parse_opt_float
 from src.web.templating import render_error, templates
@@ -47,7 +48,11 @@ def _render_speakers(request: Request, db_name: str) -> HTMLResponse:
     return templates.TemplateResponse(
         request,
         "partials/db_speakers.html",
-        {"db_name": db_name, "speakers": vdb.list_speakers(db_name)},
+        {
+            "db_name": db_name,
+            "speakers": vdb.list_speakers(db_name),
+            "recommended_sec": RECOMMENDED_REGISTRATION_SEC,
+        },
     )
 
 
@@ -131,6 +136,58 @@ async def api_upload_speakers(
             logger.warning(f"upload skipped ({rname}): {e}")
         finally:
             remove_quietly(tmp)
+
+    return _render_speakers(request, name)
+
+
+@router.post("/{name}/speakers/clips", response_class=HTMLResponse)
+async def api_upload_speaker_clips(
+    request: Request,
+    name: str,
+    speaker_name: str = Form(...),
+    files: List[UploadFile] = File(...),
+):
+    """短いクリップを複数まとめて1人の話者として登録する。
+
+    素材は ``_clips/<話者名>/`` に残り、それを連結したものが
+    ``<話者名>.wav`` になる。同じ話者名で呼べば既存素材込みで繋ぎ直す。
+    """
+    try:
+        vdb.database_dir(name)
+    except (ValueError, FileNotFoundError) as e:
+        return render_error(request, str(e))
+
+    if vdb.sanitize_name(speaker_name) is None:
+        return render_error(
+            request, f"話者名が無効です: {speaker_name!r}（名前を入れてください）"
+        )
+
+    saved: List[Path] = []
+    clip_names: List[str] = []
+    try:
+        for uf in files:
+            if not uf or not uf.filename:
+                continue
+            if Path(uf.filename).suffix.lower() not in vdb.SUPPORTED_AUDIO_EXTENSIONS:
+                logger.warning(f"clip skipped (unsupported): {uf.filename}")
+                continue
+            clip_name = Path(uf.filename).name
+            saved.append(storage.save_upload(uf, f"upload_clip_{clip_name}"))
+            clip_names.append(clip_name)
+
+        if not saved:
+            return render_error(
+                request,
+                "登録できるクリップがありませんでした。"
+                f"対応する拡張子: {sorted(vdb.SUPPORTED_AUDIO_EXTENSIONS)}",
+            )
+
+        vdb.add_speaker_clips(name, speaker_name, saved, clip_names)
+    except (ValueError, FileNotFoundError, RuntimeError) as e:
+        return render_error(request, f"クリップの登録に失敗しました: {e}")
+    finally:
+        for path in saved:
+            remove_quietly(path)
 
     return _render_speakers(request, name)
 

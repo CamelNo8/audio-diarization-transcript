@@ -9,6 +9,13 @@
         <li class="dads-item">
             <div class="dads-item__main">
                 <p><strong>{{ s.speaker_name }}</strong></p>
+                <p class="u-caption u-sub">
+                    {% if s.duration_sec %}{{ "%.1f"|format(s.duration_sec) }} 秒{% endif %}
+                    {% if s.clip_count %}　素材 {{ s.clip_count }} 本{% endif %}
+                    {% if s.duration_sec and s.duration_sec < recommended_sec %}
+                    　<strong>短いです（{{ "%.0f"|format(recommended_sec) }}秒以上を推奨）</strong>
+                    {% endif %}
+                </p>
                 <audio controls preload="none" class="u-mt-2" style="max-width: 100%">
                     <source src="/api/databases/{{ db_name }}/speakers/{{ s.filename }}/audio?v={{ s.mtime }}">
                 </audio>
@@ -52,6 +59,27 @@
                    accept=".wav,.mp3,.m4a,.flac,.mp4,.mov,.ogg,.opus,.aac,.wma">
             <p class="dads-help">ファイル名が話者名になります。</p>
             <button class="dads-button" type="submit">{{ ic.icon('upload', 20) }}アップロード</button>
+        </form>
+    </div>
+
+    <div class="u-mt-5">
+        <h3 class="dads-label" id="merge-clips-heading">短いクリップをまとめて1人にする</h3>
+        <form class="dads-stack-sm"
+              hx-post="/api/databases/{{ db_name }}/speakers/clips"
+              hx-target="#db-detail"
+              hx-swap="innerHTML"
+              hx-encoding="multipart/form-data">
+            <input class="dads-input dads-input--sm" type="text" name="speaker_name" required
+                   placeholder="話者名" aria-label="まとめて登録する話者名">
+            <input class="dads-file" type="file" name="files" multiple required
+                   aria-labelledby="merge-clips-heading"
+                   accept=".wav,.mp3,.m4a,.flac,.mp4,.mov,.ogg,.opus,.aac,.wma">
+            <p class="dads-help">
+                選んだクリップを1本に繋いで登録します。合計 {{ "%.0f"|format(recommended_sec) }} 秒以上あると安定します。
+                同じ話者名で追加すると、前のクリップも含めて繋ぎ直します。
+                口調が違う声（泣き声など）は繋がず、別の話者名にしてください。
+            </p>
+            <button class="dads-button" type="submit">{{ ic.icon('upload', 20) }}まとめて登録</button>
         </form>
     </div>
 </div>

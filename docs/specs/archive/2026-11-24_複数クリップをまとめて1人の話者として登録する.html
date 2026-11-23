@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>仕様書: 複数クリップをまとめて1人の話者として登録する</title>
+<style>
+  :root {
+    --blue-900: #0017c1; --blue-1000: #00118f; --blue-50: #e8f1fe; --blue-100: #d9e6ff;
+    --gray-50: #f2f2f2; --gray-100: #e6e6e6; --gray-200: #cccccc; --gray-536: #767676;
+    --gray-800: #333333; --gray-900: #1a1a1a;
+    --green-800: #197a4b; --green-50: #e6f5ec; --red-800: #ec0000; --yellow-900: #927200;
+    --yellow-300: #ffd43d;
+  }
+  body {
+    font-family: "Noto Sans JP", "Hiragino Sans", sans-serif;
+    color: var(--gray-800); line-height: 1.7; letter-spacing: 0.02em;
+    margin: 0; padding: 0 16px 64px; background: #fff;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  header.page { border-bottom: 4px solid var(--blue-900); padding: 32px 0 16px; margin-bottom: 32px; }
+  h1 { font-size: 32px; line-height: 1.5; letter-spacing: 0.01em; margin: 0 0 8px; color: var(--gray-900); }
+  .meta { color: var(--gray-536); font-size: 14px; }
+  h2 { font-size: 24px; line-height: 1.5; margin: 48px 0 16px; padding-left: 12px; border-left: 6px solid var(--blue-900); }
+  h3 { font-size: 18px; line-height: 1.6; margin: 32px 0 8px; }
+  p, li { font-size: 16px; }
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 15px; }
+  th, td { border: 1px solid var(--gray-200); padding: 8px 12px; text-align: left; vertical-align: top; }
+  th { background: var(--gray-50); font-weight: 700; }
+  code { background: var(--gray-50); padding: 2px 6px; border-radius: 4px; font-family: "Noto Sans Mono", monospace; font-size: 14px; }
+  pre { background: var(--gray-50); padding: 16px; border-radius: 8px; overflow-x: auto; font-size: 14px; line-height: 1.5; }
+  pre code { background: none; padding: 0; }
+  .banner { border: 3px solid var(--blue-900); border-radius: 12px; padding: 16px 24px; margin: 24px 0; }
+  .banner.info { border-color: var(--blue-900); }
+  .banner.warn { border-color: var(--yellow-900); }
+  .banner.note { border-color: var(--gray-536); }
+  .banner h3 { margin-top: 0; }
+  .status { display: inline-block; font-size: 13px; font-weight: 700; padding: 2px 10px; border-radius: 999px; border: 2px solid; }
+  .status.todo { color: var(--gray-536); border-color: var(--gray-536); }
+  .status.doing { color: var(--blue-900); border-color: var(--blue-900); background: var(--blue-50); }
+  .status.done { color: var(--green-800); border-color: var(--green-800); background: var(--green-50); }
+  .status.hold { color: var(--yellow-900); border-color: var(--yellow-900); }
+  .phase { margin: 32px 0; border: 1px solid var(--gray-200); border-radius: 12px; overflow: hidden; }
+  .phase > h3 { margin: 0; padding: 12px 16px; background: var(--gray-50); border-bottom: 1px solid var(--gray-200); font-size: 17px; }
+  .phase table { margin: 0; border: none; }
+  .phase table th:first-child, .phase table td:first-child { width: 72px; }
+  .phase table th:last-child, .phase table td:last-child { width: 104px; }
+  .verdict-ng { color: var(--red-800); font-weight: 700; }
+  .verdict-ok { color: var(--green-800); font-weight: 700; }
+  .verdict-mid { color: var(--yellow-900); font-weight: 700; }
+  .out { color: var(--gray-536); }
+  footer.page { margin-top: 64px; padding-top: 16px; border-top: 1px solid var(--gray-200); color: var(--gray-536); font-size: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+</head>
+<body>
+<div class="wrap">
+
+<header class="page">
+  <h1>複数クリップをまとめて1人の話者として登録する</h1>
+  <p class="meta">
+    作成日: 2026-11-24 ／ 状態: <span class="status done">完了</span>（2026-11-24 実装・519テスト通過） ／
+    対象: 音声特徴データベースへの登録（<code>src/voice_db/</code>・DB管理画面）
+  </p>
+</header>
+
+<h2>1. なぜやるか</h2>
+<p>
+今の登録は<strong>1ファイル＝1話者</strong>で、ファイル名がそのまま話者名になる。
+そのため短いクリップを複数持っていても、1本だけ選んで登録するしかない。
+実際に入っている登録音声は 1.0〜3.0秒で、前後0.5秒ずつのトリミング後は
+<strong>田村が0.76秒</strong>しか残っていない。話者照合に必要な長さ（目安3秒以上、
+安定して欲しいのは5〜10秒）に届いていない。
+</p>
+<p>
+そこで<strong>同じ口調のクリップを複数まとめて投げたら、裏で1本に繋いで登録する</strong>
+経路を足す。繋ぐのは<strong>登録するときの1回だけ</strong>で、照合時には繋がない。
+</p>
+
+<div class="banner info">
+  <h3>繋いでよいのは「同じ口調」だけ</h3>
+  <p>
+    埋め込みはファイル全体を時間方向にまとめて1本のベクトルにするため、繋ぐと平均が出る。
+    通常の声と泣き声を繋ぐと両者の中間に点ができ、どちらにも遠くなる。
+    口調が違うものは <code>田村</code> と <code>田村_泣き</code> のように
+    <strong>別の話者名で登録する</strong>（この仕様書では「同じ口調のまとめ方」だけを扱う）。
+  </p>
+</div>
+
+<h2>2. 決めたこと（確認済み）</h2>
+<table>
+  <tr><th>論点</th><th>決定</th></tr>
+  <tr><td>繋ぐ前の素材クリップ</td><td><strong>DBに残す。</strong>あとから同じ口調のクリップを1本足して繋ぎ直せるようにする</td></tr>
+  <tr><td>同じ話者名が既にあるとき</td><td><strong>繋ぎ直す。</strong>既存の素材に今回の分を足して、全部から作り直す</td></tr>
+  <tr><td>登録時トリミング（前後0.5秒）の見直し</td><td><strong>今回はやらない。</strong>既存の振る舞いを変える話なので別の仕様書・別コミットにする（規約9）</td></tr>
+</table>
+
+<h2>3. DBの構造</h2>
+<pre><code>voice_databases/&lt;DB名&gt;/
+├── 田村.wav                    ← 繋いだ結果。照合に使われる（今と同じ）
+├── 三上.wav
+└── _clips/                     ← 素材。照合には使われない
+    ├── 田村/
+    │   ├── 001_tamura_a.wav
+    │   ├── 002_tamura_b.wav
+    │   └── 003_tamura_c.wav
+    └── 三上/
+        └── 001_mikami.wav</code></pre>
+<p>
+<code>_clips/</code> が照合対象にならないことは既存コードで保証されている。
+<code>collect_registry_files</code>（<code>src/diarization/registry.py:107</code>）と
+<code>list_speakers</code>（<code>src/voice_db/registry.py:148</code>）はどちらも
+<code>path.is_file()</code> でディレクトリを読み飛ばすため、<strong>この2つは変更しなくてよい</strong>。
+</p>
+<p>
+素材ファイル名には <code>001_</code> のような連番を付ける。同名のクリップを投げても
+上書きされないようにするため、また繋ぐ順番を毎回同じにして結果を再現できるようにするため
+（順番は埋め込みには影響しないが、同じ入力なら同じファイルになるほうが検証しやすい）。
+</p>
+
+<h2>4. 登録の流れ</h2>
+<ol>
+  <li>DB管理画面で<strong>話者名を入力</strong>し、<strong>クリップを複数選択</strong>して「まとめて登録」を押す</li>
+  <li>クリップを <code>_clips/&lt;話者名&gt;/</code> へ連番付きで保存する</li>
+  <li>そのフォルダにある<strong>全クリップ</strong>を 16kHz・モノラルに揃えて連結する</li>
+  <li>結果を <code>&lt;話者名&gt;.wav</code> として DB 直下に保存する（既にあれば作り直し）</li>
+  <li>画面に<strong>「素材 n 本 ／ 合計 m.m 秒」</strong>を出す。3秒未満なら注意文を添える</li>
+</ol>
+
+<h2>5. 作るもの</h2>
+
+<h3>5.1 連結の部品: <code>src/common/audio.py</code> に追記</h3>
+<p>
+当初は <code>src/voice_db/clip_concat.py</code> を新設する案だったが、
+<code>src/common/audio.py</code> が「ffmpeg / ffprobe による音声ファイル操作の共通処理」の置き場として
+既に存在し、<code>build_extract_command</code>（組み立て）＋ <code>extract_audio</code>（実行）という
+<strong>まったく同じ形のペア</strong>が入っていた。ffmpeg コマンドを組み立てる場所が2か所に分かれるのを
+避けるため、連結もここに足す（規約3.3）。連結は声紋DB専用の処理ではないので、共通側に置くのが自然。
+現在118行なので、足しても目安の600行には遠い。
+</p>
+<p>ffmpeg を呼ぶ部分と、引数を組み立てる部分を分ける（規約4：ロジックをテストしやすくするため）。</p>
+<table>
+  <tr><th>関数</th><th>入力 → 出力</th><th>役割</th></tr>
+  <tr>
+    <td><code>build_concat_command</code></td>
+    <td><code>(src_paths: list[Path], dst: Path) -&gt; list[str]</code></td>
+    <td>ffmpeg のコマンドを組み立てて返すだけ。外部に触らないのでそのままテストできる</td>
+  </tr>
+  <tr>
+    <td><code>concat_audio</code></td>
+    <td><code>(src_paths: list[Path], dst: Path) -&gt; None</code></td>
+    <td>上のコマンドを <code>subprocess.run</code> で実行する。<code>shell=True</code> は使わずリストで渡す（規約8）</td>
+  </tr>
+</table>
+<p>
+入力ごとに <code>aformat</code> でサンプリングレートとチャンネル数を揃えてから <code>concat</code> する。
+揃えないと ffmpeg の concat フィルタが失敗するため。レートとチャンネル数は既存の
+<code>TARGET_SAMPLE_RATE_HZ = 16000</code> / <code>TARGET_CHANNELS = 1</code> を使う。
+</p>
+<p>エラーの扱い（規約6）：</p>
+<ul>
+  <li>クリップが0本 → <code>ValueError</code>（「繋ぐクリップが1本もありません」）</li>
+  <li>存在しないパス → <code>FileNotFoundError</code>（どのパスが無いかを含める）</li>
+  <li>ffmpeg が失敗 → <code>RuntimeError</code> に包み、ffmpeg の stderr を添える。握りつぶさない</li>
+</ul>
+
+<h3>5.2 <code>src/voice_db/registry.py</code> に足す関数</h3>
+<table>
+  <tr><th>関数</th><th>役割</th></tr>
+  <tr><td><code>clips_dir(db_name, speaker_name) -&gt; Path</code></td><td>素材フォルダのパスを返す（無ければ作る）。話者名は <code>sanitize_name</code> を通す</td></tr>
+  <tr><td><code>list_clips(db_name, speaker_name) -&gt; list[Path]</code></td><td>素材を名前順で返す</td></tr>
+  <tr><td><code>add_speaker_clips(db_name, speaker_name, clip_paths) -&gt; Path</code></td><td>素材を保存 → 全素材から連結 → <code>&lt;話者名&gt;.wav</code> を作る。戻り値は作った wav のパス</td></tr>
+</table>
+
+<h3>5.3 既存関数の追従（ここが抜けると不整合になる）</h3>
+<table>
+  <tr><th>関数</th><th>直す内容</th><th>理由</th></tr>
+  <tr>
+    <td><code>rename_speaker</code></td>
+    <td><code>_clips/&lt;旧名&gt;/</code> も <code>_clips/&lt;新名&gt;/</code> へリネームする</td>
+    <td>名前を変えたあと素材を足すと、旧名のフォルダが使われて繋ぎ直しが効かなくなる</td>
+  </tr>
+  <tr>
+    <td><code>delete_speaker</code></td>
+    <td><code>_clips/&lt;話者名&gt;/</code> もゴミ箱へ退避する</td>
+    <td>素材が残ると、同じ名前で登録し直したときに<strong>消したはずの古いクリップが混ざる</strong></td>
+  </tr>
+</table>
+
+<h3>5.4 画面とルート</h3>
+<ul>
+  <li><code>POST /api/databases/{name}/speakers/clips</code> を <code>src/web/routes/databases.py</code> に追加
+    （<code>speaker_name: str = Form(...)</code> と <code>files: List[UploadFile]</code> を受ける）</li>
+  <li><code>templates/databases.html</code> に「複数クリップをまとめて1人として登録」の欄を追加</li>
+  <li>話者一覧に<strong>素材の本数と合計秒数</strong>を出す（<code>templates/partials/db_speakers.html</code>）</li>
+</ul>
+<p>
+既存の「ファイル名＝話者名」でのアップロード（<code>/speakers/upload</code>）は<strong>そのまま残す</strong>。
+1本だけ登録したいときはこちらが早いため。
+</p>
+
+<h3>5.5 定数（<code>src/config.py</code>）</h3>
+<ul>
+  <li><code>CLIPS_DIR_NAME = "_clips"</code></li>
+  <li><code>RECOMMENDED_REGISTRATION_SEC = 3.0</code> … これ未満なら画面に注意を出す（マジックナンバーを避ける／規約3.5）</li>
+</ul>
+
+<h2>6. テスト方針（TDD）</h2>
+<p>
+ffmpeg は外部コマンドなのでモックの対象（規約1.4）。ただし「本当に繋がるか」を
+一度も確かめないのは不安なので、<strong>実際に ffmpeg を動かす統合テストを1本だけ</strong>入れる。
+ffmpeg が無い環境では <code>pytest.mark.skipif</code> でスキップする。
+</p>
+<table>
+  <tr><th>対象</th><th>正常系</th><th>境界値</th><th>異常系</th></tr>
+  <tr>
+    <td><code>build_concat_command</code></td>
+    <td>3本分の入力とフィルタが並ぶ</td>
+    <td>1本だけでも組み立てられる</td>
+    <td>0本で <code>ValueError</code></td>
+  </tr>
+  <tr>
+    <td><code>concat_audio</code></td>
+    <td>組み立てたコマンドで <code>subprocess.run</code> が呼ばれる（モック）</td>
+    <td>（統合）実 ffmpeg で2本繋ぐと長さが合計になる</td>
+    <td>ffmpeg が失敗したら stderr 付きで <code>RuntimeError</code></td>
+  </tr>
+  <tr>
+    <td><code>add_speaker_clips</code></td>
+    <td>素材が <code>_clips/</code> に入り <code>&lt;話者名&gt;.wav</code> ができる</td>
+    <td>同じ話者名で2回呼ぶと既存素材込みで繋ぎ直される</td>
+    <td>話者名が空／無効なら <code>ValueError</code></td>
+  </tr>
+  <tr>
+    <td>既存への影響</td>
+    <td><code>_clips/</code> が <code>list_speakers</code> に出ない</td>
+    <td><code>collect_registry_files</code> にも出ない</td>
+    <td>改名・削除で <code>_clips/</code> が取り残されない</td>
+  </tr>
+  <tr>
+    <td>Web ルート</td>
+    <td>POST で登録でき一覧に出る</td>
+    <td>対応外の拡張子は読み飛ばす</td>
+    <td>話者名が空／クリップ0本で画面にエラー</td>
+  </tr>
+</table>
+
+<h2>7. やらないこと</h2>
+<ul>
+  <li><strong>照合ロジックは一切触らない。</strong><code>speaker_identifier.py</code> と埋め込みキャッシュは無変更</li>
+  <li><strong>「話者ごとに複数ベクトルを持って最短距離を採る」方式は作らない。</strong>別の話なので今回は入れない</li>
+  <li>登録時トリミングの見直し（別仕様書）</li>
+  <li>閾値の既定値の変更（距離を測ってから決める）</li>
+  <li>クリップの自動選別・音質判定（頼まれていない／YAGNI）</li>
+</ul>
+
+<h2>8. 完了の確認方法</h2>
+<p>
+田村の同じ口調のクリップを複数まとめて登録し直し、同じ音声でもう一度 Step 1 を流して
+<code>job.json</code> の <code>candidate_distances</code> を比べる。
+<strong>繋ぐ前 0.788 から下がっていれば狙いどおり</strong>。下がらなければ、登録音声の長さ以外に
+原因があることが分かるので、それも成果として記録する。
+</p>
+
+<h2>9. ToDo</h2>
+<div class="phase">
+  <h3>Phase 1: 連結の部品</h3>
+  <table>
+    <tr><th>#</th><th>内容</th><th>状態</th></tr>
+    <tr><td>1</td><td><code>build_concat_command</code> のテストを書いて落ちるのを確認（Red）</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>2</td><td><code>build_concat_command</code> を実装して通す（Green）</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>3</td><td><code>concat_audio</code> のテスト（subprocess モック）＋実装</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>4</td><td>実 ffmpeg で2本繋ぐ統合テストを1本追加</td><td><span class="status done">完了</span></td></tr>
+  </table>
+</div>
+<div class="phase">
+  <h3>Phase 2: DBへの登録</h3>
+  <table>
+    <tr><th>#</th><th>内容</th><th>状態</th></tr>
+    <tr><td>5</td><td><code>clips_dir</code> / <code>list_clips</code> のテスト＋実装</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>6</td><td><code>add_speaker_clips</code> のテスト＋実装（保存→連結→登録）</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>7</td><td>同じ話者名で2回呼ぶと繋ぎ直されるテスト</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>8</td><td><code>rename_speaker</code> / <code>delete_speaker</code> が <code>_clips/</code> に追従するテスト＋実装</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>9</td><td><code>_clips/</code> が照合対象・話者一覧に出ないことのテスト</td><td><span class="status done">完了</span></td></tr>
+  </table>
+</div>
+<div class="phase">
+  <h3>Phase 3: 画面</h3>
+  <table>
+    <tr><th>#</th><th>内容</th><th>状態</th></tr>
+    <tr><td>10</td><td>POST ルートのテスト＋実装（空の話者名・0本でエラー）</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>11</td><td>DB管理画面に入力欄を追加し、素材の本数と合計秒数を表示</td><td><span class="status done">完了</span></td></tr>
+  </table>
+</div>
+<div class="phase">
+  <h3>Phase 4: 仕上げ</h3>
+  <table>
+    <tr><th>#</th><th>内容</th><th>状態</th></tr>
+    <tr><td>12</td><td>全テストと ruff を通す（結果を提示）</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>13</td><td>README の DB 構造と操作手順を更新（同じコミットで／規約2）</td><td><span class="status done">完了</span></td></tr>
+  </table>
+</div>
+
+<footer class="page">
+  音声文字起こしパイプライン ／ 仕様書
+</footer>
+
+</div>
+</body>
+</html>

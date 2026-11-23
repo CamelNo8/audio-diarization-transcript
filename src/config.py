@@ -29,6 +29,13 @@ STATIC_DIR = PROJECT_ROOT / "static"
 #: 声紋データベースの既定ルート（環境変数 VOICE_DB_ROOT で上書き可）
 DEFAULT_VOICE_DB_ROOT = PROJECT_ROOT / "voice_databases"
 
+#: 繋ぐ前の素材クリップを置くフォルダ名（DB直下）。
+#: ディレクトリなので話者ファイルの一覧・照合対象には入らない。
+CLIPS_DIR_NAME = "_clips"
+
+#: 登録音声として最低限あってほしい長さ（秒）。これ未満なら画面で注意する。
+RECOMMENDED_REGISTRATION_SEC = 3.0
+
 #: 話者エンベディング永続キャッシュの既定ルート
 #: （環境変数 EMBEDDING_CACHE_DIR で上書き可）
 DEFAULT_EMBEDDING_CACHE_DIR = PROJECT_ROOT / "embedding_cache"

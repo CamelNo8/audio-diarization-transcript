@@ -10,6 +10,21 @@ WAV_BYTES = b"RIFF----WAVEfmt "
 
 
 @pytest.fixture
+def 連結をモックにする(monkeypatch) -> list:
+    """ffmpeg を起動せず、呼ばれた引数を記録して空の wav を置く。"""
+    import src.voice_db.registry as vdb
+
+    calls: list = []
+
+    def fake_concat(src_paths, dst):
+        calls.append((list(src_paths), dst))
+        Path(dst).write_bytes(WAV_BYTES)
+
+    monkeypatch.setattr(vdb, "concat_audio", fake_concat)
+    return calls
+
+
+@pytest.fixture
 def 話者入りDB(声紋DBルート) -> Path:
     """話者ファイルを1つ持つ声紋DB を用意する。"""
     db_dir = 声紋DBルート / "テストDB"
@@ -150,3 +165,75 @@ class Test声紋DBのAPI:
 
         assert response.status_code == 200
         assert "テストDB" in response.text
+
+
+class Test複数クリップをまとめて1人として登録する:
+    URL = "/api/databases/テストDB/speakers/clips"
+
+    def test_複数クリップが1人の話者として登録される(
+        self, client, 話者入りDB, 作業ディレクトリ, 連結をモックにする
+    ):
+        response = client.post(
+            self.URL,
+            data={"speaker_name": "花子"},
+            files=[
+                ("files", ("a.wav", WAV_BYTES, "audio/wav")),
+                ("files", ("b.wav", WAV_BYTES, "audio/wav")),
+            ],
+        )
+
+        assert response.status_code == 200
+        assert (話者入りDB / "花子.wav").is_file()
+
+    def test_素材がクリップフォルダに残る(
+        self, client, 話者入りDB, 作業ディレクトリ, 連結をモックにする
+    ):
+        client.post(
+            self.URL,
+            data={"speaker_name": "花子"},
+            files=[
+                ("files", ("a.wav", WAV_BYTES, "audio/wav")),
+                ("files", ("b.wav", WAV_BYTES, "audio/wav")),
+            ],
+        )
+
+        clips = sorted((話者入りDB / "_clips" / "花子").iterdir())
+        assert [c.name for c in clips] == ["001_a.wav", "002_b.wav"]
+
+    def test_話者名が空ならエラー表示になる(
+        self, client, 話者入りDB, 作業ディレクトリ, 連結をモックにする
+    ):
+        response = client.post(
+            self.URL,
+            data={"speaker_name": "  "},
+            files=[("files", ("a.wav", WAV_BYTES, "audio/wav"))],
+        )
+
+        assert response.status_code == 200
+        assert "話者名" in response.text
+        assert not (話者入りDB / "_clips").exists()
+
+    def test_対応していない拡張子だけならエラー表示になる(
+        self, client, 話者入りDB, 作業ディレクトリ, 連結をモックにする
+    ):
+        response = client.post(
+            self.URL,
+            data={"speaker_name": "花子"},
+            files=[("files", ("メモ.txt", b"hello", "text/plain"))],
+        )
+
+        assert response.status_code == 200
+        assert "クリップ" in response.text
+        assert not (話者入りDB / "花子.wav").exists()
+
+    def test_存在しないDBならエラー表示になる(
+        self, client, 声紋DBルート, 作業ディレクトリ, 連結をモックにする
+    ):
+        response = client.post(
+            "/api/databases/無いDB/speakers/clips",
+            data={"speaker_name": "花子"},
+            files=[("files", ("a.wav", WAV_BYTES, "audio/wav"))],
+        )
+
+        assert response.status_code == 200
+        assert "存在しません" in response.text
