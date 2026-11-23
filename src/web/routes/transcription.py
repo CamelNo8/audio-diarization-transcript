@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import io
 import shutil
 import threading
-from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse
@@ -42,15 +40,11 @@ logger = get_logger(__name__)
 
 router = APIRouter()
 
-#: 画面に出すログ抜粋の長さ（文字数）。
-_SUCCESS_LOG_CHARS = 3000
+#: 失敗したときにエラー画面へ出すログ末尾の長さ（文字数）。
 _FAILURE_LOG_CHARS = 2000
 
 #: 進捗を取り直す間隔（htmx の hx-trigger に埋め込む）。
 POLL_INTERVAL = "2s"
-
-#: 処理中のログをジョブへ書き出す間隔（秒）。ポーリング間隔に合わせる。
-LOG_FLUSH_INTERVAL_SEC = 2.0
 
 
 @dataclass(frozen=True)
@@ -142,7 +136,7 @@ async def transcription_status(request: Request, job_id: str):
         return render_error(request, message)
     if job.get("status") == jobs.STATUS_DONE:
         return _render_success(request, job)
-    return _render_progress(request, job_id, job.get("log_excerpt", ""))
+    return _render_progress(request, job_id)
 
 
 def start_worker(run: _TranscriptionRun) -> None:
@@ -163,8 +157,7 @@ def run_job(run: _TranscriptionRun) -> None:
     try:
         jobs.update_job(run.job_id, status=jobs.STATUS_RUNNING)
         with capture_root_logs() as log_buffer:
-            with _flush_log_periodically(run.job_id, log_buffer):
-                result = _run_transcription(run)
+            result = _run_transcription(run)
         log_text = log_buffer.getvalue()
 
         if result is None:
@@ -176,7 +169,7 @@ def run_job(run: _TranscriptionRun) -> None:
             )
             return
 
-        jobs.save_job(run.job_id, _build_job(run, result, log_text))
+        jobs.save_job(run.job_id, _build_job(run, result))
     except Exception as e:
         logger.exception("transcription failed")
         jobs.update_job(
@@ -318,31 +311,6 @@ def _to_settings(run: _TranscriptionRun) -> TranscriptionSettings:
     )
 
 
-@contextmanager
-def _flush_log_periodically(job_id: str, log_buffer: io.StringIO) -> Iterator[None]:
-    """処理中のログを定期的にジョブへ書き出す。
-
-    進捗パネルはジョブの ``log_excerpt`` を読む。処理の最後にまとめて書くと
-    走っている間ずっと空のままになるため、別スレッドで定期的に流し込む。
-    ``with`` を抜けるときにスレッドを止めてから戻るので、呼び出し側が
-    最終結果を書くのと入れ違いにはならない。
-    """
-    stop = threading.Event()
-
-    def flush() -> None:
-        while not stop.wait(LOG_FLUSH_INTERVAL_SEC):
-            excerpt = log_buffer.getvalue()[-_SUCCESS_LOG_CHARS:]
-            jobs.update_job(job_id, log_excerpt=excerpt)
-
-    thread = threading.Thread(target=flush, daemon=True)
-    thread.start()
-    try:
-        yield
-    finally:
-        stop.set()
-        thread.join(timeout=LOG_FLUSH_INTERVAL_SEC)
-
-
 def _initial_job(run: _TranscriptionRun) -> Dict[str, Any]:
     """処理開始前のジョブ状態。進捗の問い合わせはこれを読む。
 
@@ -356,14 +324,11 @@ def _initial_job(run: _TranscriptionRun) -> Dict[str, Any]:
         "threshold": run.options.threshold,
         "embedding_model": run.options.embedding_model,
         "clusters": [],
-        "log_excerpt": "",
         "created_at": datetime.now().isoformat(timespec="seconds"),
     }
 
 
-def _build_job(
-    run: _TranscriptionRun, result: TranscriptionOutputs, log_text: str
-) -> Dict[str, Any]:
+def _build_job(run: _TranscriptionRun, result: TranscriptionOutputs) -> Dict[str, Any]:
     """完了後のジョブ状態を組み立てる。ラベル付け画面もこれを読む。"""
     for cluster in result.unknown_clusters:
         cluster["resolved"] = False
@@ -376,18 +341,16 @@ def _build_job(
         "srt_path": str(result.srt_path),
         "srt_filename": result.srt_path.name,
         "clusters": result.unknown_clusters,
-        "log_excerpt": log_text[-_SUCCESS_LOG_CHARS:],
     }
 
 
-def _render_progress(request: Request, job_id: str, log_excerpt: str = ""):
+def _render_progress(request: Request, job_id: str):
     """進捗パネルを返す。htmx がこの断片自身を定期的に取り直す。"""
     return templates.TemplateResponse(
         request,
         "partials/transcription_progress.html",
         {
             "job_id": job_id,
-            "log_excerpt": log_excerpt,
             "poll_interval": POLL_INTERVAL,
         },
     )
@@ -402,7 +365,6 @@ def _render_success(request: Request, job: Dict[str, Any]):
         {
             "filename": srt_filename,
             "download_url": f"/download/{srt_filename}",
-            "log_excerpt": job.get("log_excerpt", ""),
             "job_id": job["job_id"],
             "unknown_count": len(job.get("clusters", [])),
         },

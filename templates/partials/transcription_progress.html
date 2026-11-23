@@ -9,18 +9,6 @@
     <span class="dads-spinner dads-banner__icon" aria-hidden="true"></span>
     <div class="dads-banner__body">
         <p class="dads-banner__title">文字起こし中です</p>
-        <p>音声の長さによって、数分から数十分かかります。</p>
-        <p class="u-mt-2 u-caption u-sub">
-            この画面は開いたままにしてください。閉じても処理は続きますが、結果はこの画面にしか出ません。
-        </p>
-
-        {% if log_excerpt %}
-        <details class="dads-details u-mt-3" open>
-            <summary>処理ログ</summary>
-            <div class="dads-details__body">
-                <pre class="u-scroll-y">{{ log_excerpt }}</pre>
-            </div>
-        </details>
-        {% endif %}
+        <p>音声の長さによって、数分から数十分かかります。この画面は開いたままにしてください。</p>
     </div>
 </div>

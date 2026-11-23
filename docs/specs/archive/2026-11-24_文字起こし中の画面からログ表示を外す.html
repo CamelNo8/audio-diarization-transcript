@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>仕様書: 文字起こし中の画面からログ表示を外す</title>
+<style>
+  :root {
+    --blue-900: #0017c1; --blue-1000: #00118f; --blue-50: #e8f1fe; --blue-100: #d9e6ff;
+    --gray-50: #f2f2f2; --gray-100: #e6e6e6; --gray-200: #cccccc; --gray-536: #767676;
+    --gray-800: #333333; --gray-900: #1a1a1a;
+    --green-800: #197a4b; --green-50: #e6f5ec; --red-800: #ec0000; --yellow-900: #927200;
+    --yellow-300: #ffd43d;
+  }
+  body {
+    font-family: "Noto Sans JP", "Hiragino Sans", sans-serif;
+    color: var(--gray-800); line-height: 1.7; letter-spacing: 0.02em;
+    margin: 0; padding: 0 16px 64px; background: #fff;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  header.page { border-bottom: 4px solid var(--blue-900); padding: 32px 0 16px; margin-bottom: 32px; }
+  h1 { font-size: 32px; line-height: 1.5; letter-spacing: 0.01em; margin: 0 0 8px; color: var(--gray-900); }
+  .meta { color: var(--gray-536); font-size: 14px; }
+  h2 { font-size: 24px; line-height: 1.5; margin: 48px 0 16px; padding-left: 12px; border-left: 6px solid var(--blue-900); }
+  h3 { font-size: 18px; line-height: 1.6; margin: 32px 0 8px; }
+  p, li { font-size: 16px; }
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 15px; }
+  th, td { border: 1px solid var(--gray-200); padding: 8px 12px; text-align: left; vertical-align: top; }
+  th { background: var(--gray-50); font-weight: 700; }
+  code { background: var(--gray-50); padding: 2px 6px; border-radius: 4px; font-family: "Noto Sans Mono", monospace; font-size: 14px; }
+  pre { background: var(--gray-50); padding: 16px; border-radius: 8px; overflow-x: auto; font-size: 14px; line-height: 1.5; }
+  pre code { background: none; padding: 0; }
+  .banner { border: 3px solid var(--blue-900); border-radius: 12px; padding: 16px 24px; margin: 24px 0; }
+  .banner.info { border-color: var(--blue-900); }
+  .banner.warn { border-color: var(--yellow-900); }
+  .banner.note { border-color: var(--gray-536); }
+  .banner h3 { margin-top: 0; }
+  .status { display: inline-block; font-size: 13px; font-weight: 700; padding: 2px 10px; border-radius: 999px; border: 2px solid; }
+  .status.todo { color: var(--gray-536); border-color: var(--gray-536); }
+  .status.doing { color: var(--blue-900); border-color: var(--blue-900); background: var(--blue-50); }
+  .status.done { color: var(--green-800); border-color: var(--green-800); background: var(--green-50); }
+  .status.hold { color: var(--yellow-900); border-color: var(--yellow-900); }
+  .phase { margin: 32px 0; border: 1px solid var(--gray-200); border-radius: 12px; overflow: hidden; }
+  .phase > h3 { margin: 0; padding: 12px 16px; background: var(--gray-50); border-bottom: 1px solid var(--gray-200); font-size: 17px; }
+  .phase table { margin: 0; border: none; }
+  .phase table th:first-child, .phase table td:first-child { width: 72px; }
+  .phase table th:last-child, .phase table td:last-child { width: 104px; }
+  .verdict-ng { color: var(--red-800); font-weight: 700; }
+  .verdict-ok { color: var(--green-800); font-weight: 700; }
+  .verdict-mid { color: var(--yellow-900); font-weight: 700; }
+  .out { color: var(--gray-536); }
+  footer.page { margin-top: 64px; padding-top: 16px; border-top: 1px solid var(--gray-200); color: var(--gray-536); font-size: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+</head>
+<body>
+<div class="wrap">
+
+<header class="page">
+  <h1>文字起こし中の画面からログ表示を外す</h1>
+  <p class="meta">
+    作成日: 2026-11-24 ／ 状態: <span class="status done">完了</span>（2026-11-24 実装・486テスト通過） ／
+    対象: 進捗パネル・完了パネル（Step 1）と、その裏でログを集めている処理
+  </p>
+</header>
+
+<h2>1. 目的</h2>
+<p>
+文字起こし中の画面に出ている<strong>処理ログ</strong>（黒っぽい文字がずらっと流れる枠）は、
+使う人には必要がない。画面に残すのは<strong>回っているマーク（スピナー）と「文字起こし中です」</strong>、
+そして<strong>待ち時間の案内</strong>だけにする。
+</p>
+
+<h2>2. 変更後の画面（文字起こし中）</h2>
+<pre><code>（回っているマーク）文字起こし中です
+音声の長さによって、数分から数十分かかります。
+この画面は開いたままにしてください。</code></pre>
+<p>
+いまある「閉じても処理は続きますが、結果はこの画面にしか出ません。」と
+「処理ログ」の枠は消す。完了パネルの折りたたみ「処理ログを表示」も消す。
+</p>
+
+<div class="banner warn">
+  <h3>消さないもの</h3>
+  <p>
+    <strong>失敗したときのエラー画面に出るログの末尾</strong>は残す。
+    消すと「なぜ止まったのか」が画面から分からなくなるため。
+    そのためログを集める仕組み自体（<code>capture_root_logs</code>）はそのまま使う。
+  </p>
+</div>
+
+<h2>3. 触るファイル</h2>
+<table>
+  <tr><th>ファイル</th><th>やること</th></tr>
+  <tr>
+    <td><code>templates/partials/transcription_progress.html</code></td>
+    <td>「処理ログ」の <code>&lt;details&gt;</code> と、画面を閉じた場合の注意文を削除。案内文は1文に短縮。</td>
+  </tr>
+  <tr>
+    <td><code>templates/partials/success_transcription.html</code></td>
+    <td>「処理ログを表示」の <code>&lt;details&gt;</code> を削除。</td>
+  </tr>
+  <tr>
+    <td><code>src/web/routes/transcription.py</code></td>
+    <td>
+      表示が無くなるので、画面用のログ抜粋をジョブへ書く処理を撤去する。
+      具体的には <code>_flush_log_periodically</code>、<code>LOG_FLUSH_INTERVAL_SEC</code>、
+      <code>_SUCCESS_LOG_CHARS</code>、ジョブと描画の <code>log_excerpt</code>、
+      それで使われなくなる <code>io</code> / <code>contextmanager</code> / <code>Iterator</code> の import。
+    </td>
+  </tr>
+</table>
+
+<h2>4. テスト方針</h2>
+<p>
+これは<strong>画面の文字を減らす変更と、それに伴う未使用コードの撤去</strong>なので、
+新しいテストは書かない（規約1.5の「表示文言の変更」に当たる）。
+代わりに<strong>既存のテストが全部通ること</strong>を確認する。
+<code>tests/test_web_transcription.py</code> は「文字起こし中」が画面に出ることを見ているので、
+ここが通れば進捗パネルは壊れていない。
+</p>
+
+<h2>5. ToDo</h2>
+<div class="phase">
+  <h3>実装</h3>
+  <table>
+    <tr><th>#</th><th>内容</th><th>状態</th></tr>
+    <tr><td>1</td><td>進捗パネルの文面を短くし、処理ログの枠を消す</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>2</td><td>完了パネルの「処理ログを表示」を消す</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>3</td><td>使われなくなったログ抜粋の収集コードと import を撤去</td><td><span class="status done">完了</span></td></tr>
+    <tr><td>4</td><td>既存テスト（pytest）と ruff が通ることを確認</td><td><span class="status done">完了</span></td></tr>
+  </table>
+</div>
+
+<footer class="page">
+  音声文字起こしパイプライン ／ 仕様書
+</footer>
+
+</div>
+</body>
+</html>
