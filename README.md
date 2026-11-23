@@ -93,9 +93,9 @@ uv pip install -r requirements-spark.txt   # torch 3点は +cu129 でピン済�
 ```
 
 - SSH パスワードは ControlMaster（接続多重化）で原則1回だけ。接続先は `SPARK_USER` / `SPARK_HOST` / `REMOTE_REPO` / `LOCAL_PORT` 等の環境変数で上書きできます。
-- ブラウザに出るのは `http://127.0.0.1:8001` ですが、**文字起こし・話者分離・声紋照合・マッチングはすべて Spark の GPU で実行**されます。動画やテキストのアップロードはトンネル越しに Spark へ届きます。
-- **声紋DB は Spark 上の GUI（[`/databases`](http://127.0.0.1:8001/databases)）で作成・管理**します（DB は Spark に常駐。Mac からの scp は不要）。
-- 将来は Mac 側 `app.py` をプロキシ化して Spark を完全なヘッドレス API にする構成（大規模声紋DB向けの埋め込みキャッシュ含む）への拡張を予定しています。
+- ブラウザに出るのは `http://127.0.0.1:8001` ですが、**文字起こし・話者分離・音声特徴照合・マッチングはすべて Spark の GPU で実行**されます。動画やテキストのアップロードはトンネル越しに Spark へ届きます。
+- **音声特徴DB は Spark 上の GUI（[`/databases`](http://127.0.0.1:8001/databases)）で作成・管理**します（DB は Spark に常駐。Mac からの scp は不要）。
+- 将来は Mac 側 `app.py` をプロキシ化して Spark を完全なヘッドレス API にする構成（大規模音声特徴DB向けの埋め込みキャッシュ含む）への拡張を予定しています。
 
 #### 推論 API としてだけ使う（Path 2 / 未使用）
 
@@ -109,7 +109,7 @@ uv run uvicorn src.spark.server:app --host 0.0.0.0 --port 8000
 uv run python -m src.spark.client 音声.wav 3
 ```
 
-話者照合（声紋DB）と GUI は PC 側に残す設計で、サーバーは cluster_id 付きセグメントと
+話者照合（音声特徴DB）と GUI は PC 側に残す設計で、サーバーは cluster_id 付きセグメントと
 照合用の処理済み WAV だけを返します。接続先は環境変数 `SPARK_URL` で指定します。
 
 ---
@@ -142,7 +142,7 @@ HF_HUB_OFFLINE=0 uv run python main.py 対象の会議録音.mp4
 
 ## 使い方（CLI / `main.py`）
 
-声紋登録用の音声をひとつのディレクトリにまとめ、`--registry_dir` で指定します。
+音声特徴を登録する音声をひとつのディレクトリにまとめ、`--registry_dir` で指定します。
 直下の対応音声（`.wav .mp3 .m4a .flac .mp4 .mov .ogg .opus .aac .wma`）を自動登録し、**話者名はファイル名（拡張子なし）**がそのまま使われます。
 
 ```bash
@@ -153,14 +153,14 @@ uv run python main.py 対象の会議録音.mp4 --registry_dir ./voiceprints
 uv run python main.py 対象の会議録音.mp4
 ```
 
-登録音声は前後 0.5 秒をノイズ排除のためトリミングしてから声紋抽出します（短すぎる場合はスキップ）。
+登録音声は前後 0.5 秒をノイズ排除のためトリミングしてから音声特徴を抽出します（短すぎる場合はスキップ）。
 
 ### オプション引数
 
 | 引数 | 説明 | デフォルト |
 |---|---|---|
 | `audio_file_path` | **[必須]** 処理対象の音声/動画ファイルのパス | (なし) |
-| `--registry_dir` | 声紋登録用ディレクトリ（直下の対応音声を自動登録、話者名 = ファイル名 stem） | None |
+| `--registry_dir` | 音声特徴の登録用ディレクトリ（直下の対応音声を自動登録、話者名 = ファイル名 stem） | None |
 | `--output_csv_path` | 出力 CSV のパス | 自動生成（現在時刻） |
 | `--threshold` | 話者一致判定のしきい値。これより距離が遠いと Unknown 扱い | 0.5 |
 | `--num_speakers` | 既知の総話者数（指定すると精度向上） | None（自動推定） |
@@ -171,9 +171,9 @@ uv run python main.py 対象の会議録音.mp4
 
 ### 処理の仕組み（照合ロジック）
 
-1. `--registry_dir` 内の各音声から声紋（埋め込みベクトル）を抽出・正規化してメモリに保持（各音声は前後 0.5 秒トリミング）。
+1. `--registry_dir` 内の各音声から音声特徴（埋め込みベクトル）を抽出・正規化してメモリに保持（各音声は前後 0.5 秒トリミング）。
 2. 対象音声を pyannote で話者分離し、各クラスター（声のまとまり）で最も長い発話区間を抽出。
-3. その区間から声紋を抽出し、登録済み声紋とのコサイン距離を計算、最近傍の登録話者を候補とする。
+3. その区間から音声特徴を抽出し、登録済みの音声特徴とのコサイン距離を計算、最近傍の登録話者を候補とする。
 4. 候補との距離が `--threshold`（既定 0.5）以下ならその名前を割り当て、超えれば `Unknown_X` 扱い。
 
 ### 出力例（`result.csv`）
@@ -203,10 +203,10 @@ UI は**手順ごとに1画面**です。画面の上にあるステップ表示
 
 | URL | 画面 | 内容 |
 |---|---|---|
-| `/` | **Step 1: 文字起こし & 話者分離** | 音声/動画 ＋ 声紋登録ファイル群（任意）から文字起こし SRT を生成（本文は `[speaker] text` 形式）。内部で `main.py` と同じ `AudioProcessor` を呼び出し、サイドカー CSV と RTTM も `temp/` に保存。詳細設定でしきい値・話者数・モデル名・HF_TOKEN・denoise を指定可能。 |
+| `/` | **Step 1: 文字起こし & 話者分離** | 音声/動画 ＋ 音声特徴の登録ファイル群（任意）から文字起こし SRT を生成（本文は `[speaker] text` 形式）。内部で `main.py` と同じ `AudioProcessor` を呼び出し、サイドカー CSV と RTTM も `temp/` に保存。詳細設定でしきい値・話者数・モデル名・HF_TOKEN・denoise を指定可能。 |
 | `/matching?job_id=...` | **Step 2: マッチング（対応表作成）** | 台本（`.csv`）または手動書き起こしテキスト（`.txt`）＋ Step 1 の SRT から、SentenceTransformer + FAISS + WLIS で対応表 CSV を生成（`src/subtitle/`）。`.txt` は `話者:本文` / `（ト書き）` / `# 場面` を解釈して台本 CSV に自動変換。 |
 | `/generation?csv=...` | **Step 3: 字幕生成** | 編集済み対応表 CSV から字幕 SRT を生成（`src/subtitle/exporter.py`）。 |
-| `/databases` | 声紋データベース管理 | DB の作成・話者の追加・リネーム・トリミング・削除。 |
+| `/databases` | 音声特徴データベース管理 | DB の作成・話者の追加・リネーム・トリミング・削除。 |
 | `/unknowns/{job_id}` | 未登録話者のラベル付け | Step 1 で Unknown になったクラスタに名前を付ける。 |
 
 **手順のつなぎ方**: Step 1 の完了パネルにある「Step 2 へ進む」を押すと、ジョブ ID（`?job_id=`）を付けて
@@ -229,7 +229,7 @@ DADS が変更を禁じているので、そのまま使っています。
 文字起こしはアップロード完了時点で受け付けだけ返し、処理は裏で走ります。画面は 2 秒ごとに
 進捗を取りに行き、処理ログをその場に流しながら、完了すると結果パネルへ切り替わります。
 
-- **長尺でも接続が切れません。** 処理中も他の画面（声紋DB管理など）は通常どおり開けます。
+- **長尺でも接続が切れません。** 処理中も他の画面（音声特徴DB管理など）は通常どおり開けます。
 - ジョブの状態は `temp/clusters/<job_id>/job.json` に持ちます。**メモリには載せていない**ので、
   ページを再読み込みしても進捗を追えます。
 - **ページを閉じても処理は続きます**が、結果パネルはその画面にしか出ません。
@@ -240,9 +240,9 @@ DADS が変更を禁じているので、そのまま使っています。
 > **uvicorn は 1 ワーカーで起動してください。** ジョブの状態はファイルで共有しているので
 > 複数ワーカーでも壊れませんが、重いモデルがワーカーの数だけメモリに載ります。
 
-### 声紋データベース（`voice_databases/`）
+### 音声特徴データベース（`voice_databases/`）
 
-Web UI では声紋 DB を `voice_databases/<DB名>/<話者名>.wav` の構造で管理し、GUI から作成・話者追加・リネーム・トリミング・削除ができます（[`/databases`](http://127.0.0.1:8000/databases) ページ）。
+Web UI では音声特徴 DB を `voice_databases/<DB名>/<話者名>.wav` の構造で管理し、GUI から作成・話者追加・リネーム・トリミング・削除ができます（[`/databases`](http://127.0.0.1:8000/databases) ページ）。
 
 - このディレクトリは **`.gitignore` 済み**（音声を Git/GitHub に上げないため）。`git clone` には含まれません。
 - 中身はサーバーのディスクに永続します（`git pull`・再起動では消えません）。
@@ -317,7 +317,7 @@ dialogue,話者B,お疲れ様です
 
 ### ① 正解字幕から5分クリップ2本を選ぶ
 
-各動画から「重なり・話者交替が多い区間（hard）」と「落ち着いた区間（calm）」を、**発話境界に合わせて**自動で選びます。入力は**正解字幕SRTだけ**です（声紋DBは見ません）。
+各動画から「重なり・話者交替が多い区間（hard）」と「落ち着いた区間（calm）」を、**発話境界に合わせて**自動で選びます。入力は**正解字幕SRTだけ**です（音声特徴DBは見ません）。
 
 ```bash
 uv run python -m src.evaluation.clip_selector --srt "字幕/転スラ.srt" --video 転スラ1話.mp4 --out-csv docs/experiment/clips.csv --append --out-srt-dir docs/experiment/gt
@@ -341,9 +341,9 @@ uv run python -m src.evaluation.clip_selector --srt "字幕/転スラ.srt" --vid
 |---|---|---|
 | ① `clips.csv` | `speaker_count` | その区間に登場した人数 |
 | ① `clips.csv` | `speaker_utterances` | 誰が何回喋ったか（`海:39 岡本:25 …` 発話数の多い順） |
-| ② `results.csv` | `registered_speaker_count` / `unregistered_speaker_count` | 登場人数のうち、声紋DBに登録済みの人数と未登録の人数（`--voice-db` から判定） |
+| ② `results.csv` | `registered_speaker_count` / `unregistered_speaker_count` | 登場人数のうち、音声特徴DBに登録済みの人数と未登録の人数（`--voice-db` から判定） |
 
-`speaker_utterances` を見れば「発話1件だけの通行人が人数を押し上げている」ことがすぐ分かるので、登場人数の大小をそのまま解釈せずに済みます。誰を声紋DBに登録するかは予稿 4.2 のとおり「名前を持つ主要登場人物」で決め、その結果は ② が `registered_speaker_count` として記録します。hard と calm で登録者が違うので、声紋DBは `voice_databases/転スラ_hard/` のようにクリップごとに分けてください。
+`speaker_utterances` を見れば「発話1件だけの通行人が人数を押し上げている」ことがすぐ分かるので、登場人数の大小をそのまま解釈せずに済みます。誰を音声特徴DBに登録するかは予稿 4.2 のとおり「名前を持つ主要登場人物」で決め、その結果は ② が `registered_speaker_count` として記録します。hard と calm で登録者が違うので、音声特徴DBは `voice_databases/転スラ_hard/` のようにクリップごとに分けてください。
 
 ### ② アプリ生成字幕を正解字幕と突き合わせて評価する
 
@@ -390,7 +390,7 @@ audio-diarization-transcript/
 │   │   ├── clusters.py         #   クラスタの代表区間・未知クラスタの永続化
 │   │   ├── speaker_identifier.py   # 埋め込み抽出とコサイン距離による照合
 │   │   ├── embedding_cache.py  #   話者エンベディングの永続キャッシュ
-│   │   ├── registry.py         #   声紋登録ファイルの収集・照合器のキャッシュ
+│   │   ├── registry.py         #   音声特徴の登録ファイルの収集・照合器のキャッシュ
 │   │   ├── transcript.py       #   文字起こし結果 → CSV
 │   │   ├── interactive.py      #   CLI での対話的な未知話者解決
 │   │   └── torch_compat.py     #   torch のバージョン差異の吸収
@@ -410,7 +410,7 @@ audio-diarization-transcript/
 │   │   ├── srt_stats.py        #   正解字幕SRTの解析・説明変数・RTTMの重なり時間
 │   │   ├── clip_selector.py    #   正解字幕から5分クリップ2本（hard / calm）を選ぶ
 │   │   └── evaluator.py        #   in点・話者の評価と誤りの分類（FN / FP）
-│   ├── voice_db/registry.py    # 声紋データベース（作成・話者の追加/削除/改名）
+│   ├── voice_db/registry.py    # 音声特徴データベース（作成・話者の追加/削除/改名）
 │   ├── web/                    # FastAPI + htmx の Web アプリ層
 │   │   ├── application.py      #   ルータ登録（create_app）
 │   │   ├── templating.py       #   Jinja2 環境とエラー表示
@@ -434,7 +434,7 @@ audio-diarization-transcript/
 ├── tests/                      # pytest（重いモデルはモック）
 ├── tools/                      # 調査用の使い捨てスクリプト
 ├── temp/                       # 作業ディレクトリ（.gitignore 済み）
-└── voice_databases/            # 声紋DB（.gitignore 済み。.trash/ が削除済みの退避先）
+└── voice_databases/            # 音声特徴DB（.gitignore 済み。.trash/ が削除済みの退避先）
 ```
 
 ---

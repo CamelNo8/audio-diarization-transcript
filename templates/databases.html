@@ -1,20 +1,20 @@
 {% extends "base.html" %}
-{% block title %}声紋データベース管理 ｜ 音声 → 字幕 統合アプリ{% endblock %}
+{% block title %}音声特徴データベース管理 ｜ 音声 → 字幕 統合アプリ{% endblock %}
 {% block main_class %}dads-main--wide{% endblock %}
 
+{% import 'partials/icons.html' as ic %}
 {% block content %}
 <nav class="dads-breadcrumb" aria-label="現在の位置">
     <ol>
         <li><a href="/">Step 1　文字起こし・話者分離</a></li>
-        <li>声紋データベース管理</li>
+        <li>音声特徴データベース管理</li>
     </ol>
 </nav>
 
-<h1 class="dads-page-title">声紋データベース管理</h1>
+<h1 class="dads-page-title">音声特徴データベース管理</h1>
 <p class="dads-lead">
     話者を特定するための声のサンプルを、データベースごとにまとめて管理します。
 </p>
-<p class="u-caption u-sub u-mb-3">置き場所: <code>{{ root }}</code></p>
 
 <div class="dads-columns dads-columns--2">
     <section class="dads-card">
@@ -32,12 +32,9 @@
                   hx-swap="innerHTML"
                   hx-on::after-request="if(event.detail.successful){this.reset(); htmx.trigger('body', 'db-changed');}">
                 <input class="dads-input u-grow" type="text" name="name" required
-                       placeholder="例: 転スラ_hard" aria-labelledby="new-db-heading">
-                <button class="dads-button" type="submit">作成</button>
+                       placeholder="任意の名前を入力してください" aria-labelledby="new-db-heading">
+                <button class="dads-button" type="submit">{{ ic.icon('add', 20) }}作成</button>
             </form>
-            <p class="dads-help">
-                クリップごとに分けて作ると、評価のときに登録話者をそろえやすくなります。
-            </p>
         </div>
     </section>
 
@@ -54,8 +51,8 @@
     <div class="dads-modal__panel">
         <div class="dads-modal__header">
             <h2 id="db-trim-heading">声の切り出し<span id="db-trim-title" class="dads-label__note"></span></h2>
-            <button class="dads-button dads-button--text dads-button--sm" type="button"
-                    onclick="closeDbTrim()">閉じる</button>
+            <button class="dads-button dads-button--text dads-button--icon" type="button"
+                    title="閉じる" aria-label="閉じる" onclick="closeDbTrim()">{{ ic.icon('close', 20) }}</button>
         </div>
 
         <div class="dads-crop">
@@ -69,7 +66,7 @@
                        id="crop-end-dbtrim">
                 <button class="dads-button dads-button--outline dads-button--sm" type="button"
                         onclick="cropEditors['dbtrim'] && cropEditors['dbtrim'].playSelection()">
-                    選択範囲を試聴
+                    {{ ic.icon('play', 20) }}試聴
                 </button>
                 <button class="dads-button dads-button--text dads-button--sm" type="button"
                         onclick="cropEditors['dbtrim'] && cropEditors['dbtrim'].reset()">
@@ -99,8 +96,8 @@
     <div class="dads-modal__panel dads-modal__panel--narrow">
         <div class="dads-modal__header">
             <h2 id="db-rename-heading">話者名の変更</h2>
-            <button class="dads-button dads-button--text dads-button--sm" type="button"
-                    onclick="closeDbRename()">閉じる</button>
+            <button class="dads-button dads-button--text dads-button--icon" type="button"
+                    title="閉じる" aria-label="閉じる" onclick="closeDbRename()">{{ ic.icon('close', 20) }}</button>
         </div>
 
         <label class="dads-label" for="db-rename-input">新しい話者名</label>

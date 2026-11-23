@@ -83,7 +83,7 @@ async def databases_page(request: Request):
     return templates.TemplateResponse(
         request,
         "databases.html",
-        {"databases": vdb.list_databases(), "root": str(vdb.get_root())},
+        {"databases": vdb.list_databases()},
     )
 
 

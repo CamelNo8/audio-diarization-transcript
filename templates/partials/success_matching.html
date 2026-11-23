@@ -1,3 +1,4 @@
+{% import 'partials/icons.html' as ic %}
 <div class="dads-banner dads-banner--success dads-fade-in" role="status">
     <svg class="dads-banner__icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
         <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1 14.4-4.2-4.2 1.4-1.4 2.8 2.8 5.6-5.6 1.4 1.4-7 7z"/>
@@ -13,9 +14,9 @@
         <div class="dads-banner__actions">
             <a class="dads-button"
                href="/generation?csv={{ filename | urlencode }}{% if job_id %}&job_id={{ job_id | urlencode }}{% endif %}">
-                Step 3 へ進む
+                {{ ic.icon('next', 20) }}Step 3 へ進む
             </a>
-            <a class="dads-button dads-button--outline" href="{{ download_url }}">対応表をダウンロード</a>
+            <a class="dads-button dads-button--outline" href="{{ download_url }}">{{ ic.icon('download', 20) }}対応表をダウンロード</a>
         </div>
     </div>
 </div>

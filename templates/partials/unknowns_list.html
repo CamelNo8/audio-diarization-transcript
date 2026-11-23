@@ -1,4 +1,5 @@
 {% import 'partials/crop_editor.html' as ce %}
+{% import 'partials/icons.html' as ic %}
 {% set unresolved = job.clusters | rejectattr('resolved') | list %}
 {% set resolved = job.clusters | selectattr('resolved') | list %}
 
@@ -55,7 +56,7 @@
         </option>
     </select>
     <input class="dads-input u-mt-2 {% if databases %}u-hidden{% endif %}" type="text" id="label-new-db-name"
-           placeholder="例: オードリー" aria-label="新しいデータベースの名前">
+           placeholder="任意の名前を入力してください" aria-label="新しいデータベースの名前">
     <p class="dads-help">
         名前を付けた音声は、このデータベースに <code>{名前}.wav</code> として保存されます。
         残りの Unknown も同じデータベースで自動的に再照合します。
@@ -98,7 +99,7 @@
               hx-include="#label-db-select">
             <div class="u-row">
                 <input class="dads-input u-grow" type="text" name="speaker_name" required
-                       placeholder="話者名（例: 三上）"
+                       placeholder="話者名"
                        aria-label="{{ c.unknown_label }} の話者名">
                 <input type="hidden" name="db_name" value="">
                 <button class="dads-button" type="submit">名前を付ける</button>
@@ -161,8 +162,8 @@
 {% endif %}
 
 <div class="u-row u-mt-5">
-    <a class="dads-button" href="/download/{{ job.csv_filename }}">更新済みの文字起こしCSVをダウンロード</a>
-    <a class="dads-button dads-button--outline" href="/matching?job_id={{ job.job_id | urlencode }}">Step 2 へ進む</a>
+    <a class="dads-button" href="/download/{{ job.csv_filename }}">{{ ic.icon('download', 20) }}文字起こしCSVをダウンロード</a>
+    <a class="dads-button dads-button--outline" href="/matching?job_id={{ job.job_id | urlencode }}">{{ ic.icon('next', 20) }}Step 2 へ進む</a>
     <span class="u-caption u-sub">ジョブID: {{ job.job_id }}</span>
 </div>
 

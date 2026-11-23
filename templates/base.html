@@ -22,6 +22,7 @@
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
     {% block head_extra %}{% endblock %}
 </head>
+{% import 'partials/icons.html' as ic %}
 <body>
     <a class="dads-skip-link" href="#main">本文へスキップ</a>
 
@@ -29,7 +30,7 @@
         <div class="dads-header__inner">
             <p class="dads-header__title"><a href="/">音声 → 字幕 統合アプリ</a></p>
             <nav class="dads-header__nav" aria-label="共通メニュー">
-                <a href="/databases">声紋データベース管理</a>
+                <a href="/databases">{{ ic.icon('database', 20) }}音声特徴データベース</a>
             </nav>
         </div>
     </header>

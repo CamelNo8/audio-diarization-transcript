@@ -1,13 +1,14 @@
 {% extends "base.html" %}
 {% block title %}Step 1 文字起こし・話者分離 ｜ 音声 → 字幕 統合アプリ{% endblock %}
 
+{% import 'partials/icons.html' as ic %}
 {% block content %}
 {% set current = 1 %}
 {% include "partials/step_nav.html" %}
 
 <h1 class="dads-page-title">Step 1　文字起こし・話者分離</h1>
 <p class="dads-lead">
-    音声または動画と、声紋データベース（任意）から、話者名つきの文字起こしSRTを作ります。
+    音声または動画と、音声特徴データベース（任意）から、話者名つきの文字起こしSRTを作ります。
 </p>
 
 <form class="dads-card dads-stack"
@@ -22,17 +23,15 @@
         </label>
         <input class="dads-file" type="file" id="audio-file" name="audio_file" required
                accept=".wav,.mp3,.m4a,.flac,.mp4,.mov,.ogg,.opus,.aac,.wma">
-        <p class="dads-help">wav / mp3 / m4a / flac / mp4 / mov / ogg / opus / aac / wma に対応しています。</p>
     </div>
 
     <fieldset class="dads-fieldset">
-        <legend>声紋データベース</legend>
+        <legend>音声特徴データベース</legend>
         <div class="dads-choice-group">
             <label class="dads-choice">
                 <input type="radio" name="db_choice" value="none" checked onchange="toggleDbChoice()">
                 <span class="dads-choice__body">
                     <strong>使わない</strong>
-                    <span class="dads-choice__note">話者照合をせず、SPEAKER_00 のような仮の名前を付けます。</span>
                 </span>
             </label>
 
@@ -45,7 +44,7 @@
             <div id="db-existing-block" class="u-hidden">
                 <div class="u-row">
                     <select class="dads-select dads-select--sm u-grow" name="db_existing_name" id="db-existing-select"
-                            aria-label="使用する声紋データベース">
+                            aria-label="使用する音声特徴データベース">
                         <option value="">データベースを選択してください</option>
                         {% for db in databases %}
                         <option value="{{ db.name }}">{{ db.name }}（{{ db.speaker_count }} 話者）</option>
@@ -55,7 +54,7 @@
                             onclick="refreshDbSelect()">一覧を更新</button>
                 </div>
                 <p id="db-empty-hint" class="dads-help {% if databases %}u-hidden{% endif %}">
-                    データベースがまだありません。<a href="/databases">声紋データベース管理</a>で作成してください。
+                    データベースがまだありません。<a href="/databases">音声特徴データベース管理</a>で作成してください。
                 </p>
             </div>
 
@@ -67,18 +66,18 @@
             </label>
             <div id="db-new-block" class="u-hidden">
                 <input class="dads-input dads-input--sm" type="text" name="db_new_name"
-                       placeholder="例: 転スラ_hard" aria-label="新しいデータベースの名前">
+                       placeholder="任意の名前を入力してください" aria-label="新しいデータベースの名前">
             </div>
         </div>
 
         <div id="db-upload-block" class="u-hidden u-mt-3">
             <label class="dads-label" for="registry-files">
-                このデータベースに追加する声紋ファイル
+                追加する音声ファイル
                 <span class="dads-label__note">任意・複数選択できます</span>
             </label>
             <input class="dads-file" type="file" id="registry-files" name="registry_files" multiple
                    accept=".wav,.mp3,.m4a,.flac,.mp4,.mov,.ogg,.opus,.aac,.wma">
-            <p class="dads-help">ファイル名（拡張子をのぞいた部分）が話者名になります。</p>
+            <p class="dads-help">ファイル名が話者名になります。</p>
         </div>
     </fieldset>
 
@@ -89,21 +88,21 @@
                 <input type="radio" name="denoise_mode" value="off" checked>
                 <span class="dads-choice__body">
                     <strong>なし</strong>
-                    <span class="dads-choice__note">元の音声をそのまま使います。BGM のない音声向け。まずはこれで試してください。</span>
+                    <span class="dads-choice__note">BGM のない音声向け。</span>
                 </span>
             </label>
             <label class="dads-choice">
                 <input type="radio" name="denoise_mode" value="fast">
                 <span class="dads-choice__body">
-                    <strong>高速</strong>（Kim_Vocal_2 / 約 80MB）
-                    <span class="dads-choice__note">処理時間 +30秒〜1分。軽い BGM や雑音の除去に向きます。</span>
+                    <strong>高速</strong>
+                    <span class="dads-choice__note">軽い BGM や雑音の除去に向きます。</span>
                 </span>
             </label>
             <label class="dads-choice">
                 <input type="radio" name="denoise_mode" value="high">
                 <span class="dads-choice__body">
-                    <strong>高品質</strong>（Mel-Band Roformer / 約 600MB）
-                    <span class="dads-choice__note">処理時間 +1〜3分・メモリ 4GB 以上。楽器演奏や強い BGM が乗った音声向け。</span>
+                    <strong>高品質</strong>
+                    <span class="dads-choice__note">楽器演奏や強い BGM が乗った音声向け。</span>
                 </span>
             </label>
         </div>
@@ -113,10 +112,7 @@
         <label class="dads-label" for="output-srt-name">出力するSRTのファイル名</label>
         <input class="dads-input" type="text" id="output-srt-name" name="output_srt_name"
                value="{{ default_srt_name }}">
-        <p class="dads-help">
-            クリップごとに名前を変えてください（同じ名前だと前の結果を上書きします）。
-            同じ名前で文字起こしCSVと話者分離のRTTMも保存されます。
-        </p>
+        <p class="dads-help">同じ名前にすると前の結果を上書きします。</p>
     </div>
 
     <details class="dads-details">
@@ -134,7 +130,7 @@
                 <p class="dads-help">空欄なら自動で推定します。分かっている場合は入れると精度が上がります。</p>
             </div>
             <div class="dads-field">
-                <label class="dads-label" for="embedding-model">声紋の埋め込みモデル</label>
+                <label class="dads-label" for="embedding-model">音声特徴の埋め込みモデル</label>
                 <input class="dads-input dads-input--sm" type="text" id="embedding-model" name="embedding_model"
                        value="pyannote/embedding">
             </div>
@@ -177,7 +173,7 @@
     </details>
 
     <div>
-        <button class="dads-button dads-button--lg dads-button--block" type="submit">文字起こしを実行</button>
+        <button class="dads-button dads-button--lg dads-button--block" type="submit">{{ ic.icon('mic') }}文字起こしを実行</button>
     </div>
 </form>
 

@@ -1,3 +1,4 @@
+{% import 'partials/icons.html' as ic %}
 <div class="dads-banner dads-banner--success dads-fade-in" role="status">
     <svg class="dads-banner__icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
         <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1 14.4-4.2-4.2 1.4-1.4 2.8 2.8 5.6-5.6 1.4 1.4-7 7z"/>
@@ -7,7 +8,7 @@
         <p><strong>{{ filename }}</strong>（{{ count }} 件の字幕）を作りました。</p>
 
         <div class="dads-banner__actions">
-            <a class="dads-button" href="{{ download_url }}">SRTをダウンロード</a>
+            <a class="dads-button" href="{{ download_url }}">{{ ic.icon('download', 20) }}SRTをダウンロード</a>
             <a class="dads-button dads-button--text" href="/">最初からやり直す</a>
         </div>
     </div>

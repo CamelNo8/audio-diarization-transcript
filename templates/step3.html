@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Step 3 字幕生成 ｜ 音声 → 字幕 統合アプリ{% endblock %}
 
+{% import 'partials/icons.html' as ic %}
 {% block content %}
 {% set current = 3 %}
 {% include "partials/step_nav.html" %}
@@ -38,8 +39,7 @@
         </label>
         <input class="dads-file" type="file" id="edited-csv" name="edited_csv" accept=".csv" required>
         <p class="dads-help">
-            使う列は <code>start_time</code>・<code>end_time</code>・<code>speaker</code>・<code>subtitle_text</code> の4つです。
-            話者が空の行は話者名なしの字幕になります。
+            使う列は <code>start_time</code>・<code>end_time</code>・<code>speaker</code>・<code>subtitle_text</code> です。
         </p>
     </div>
 
@@ -50,7 +50,7 @@
     </div>
 
     <div>
-        <button class="dads-button dads-button--lg dads-button--block" type="submit">字幕を生成する</button>
+        <button class="dads-button dads-button--lg dads-button--block" type="submit">{{ ic.icon('check') }}字幕を生成する</button>
     </div>
 </form>
 

@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Step 2 マッチング ｜ 音声 → 字幕 統合アプリ{% endblock %}
 
+{% import 'partials/icons.html' as ic %}
 {% block content %}
 {% set current = 2 %}
 {% include "partials/step_nav.html" %}
@@ -50,10 +51,15 @@
         </label>
         <input class="dads-file" type="file" id="script-file" name="script_file" accept=".csv,.txt" required>
         <p class="dads-help">
-            CSV の場合は <code>id,scene_id,type,speaker,contents</code> の形（type は dialogue か scene）。<br>
-            テキストの場合は1行を1つの台詞として読みます（<code>話者:本文</code> や <code>（ト書き）</code> も解釈します）。
-            話者を書かなければ、話者は Step 1 の話者特定の結果から自動で入ります。
+            テキストは1行が1つの台詞になります。話者を書かなければ Step 1 の結果から自動で入ります。
         </p>
+        <details class="dads-details u-mt-2">
+            <summary>ファイルの形式</summary>
+            <div class="dads-details__body">
+                <p>CSV: <code>id,scene_id,type,speaker,contents</code>（type は dialogue / scene）</p>
+                <p>テキスト: <code>話者:本文</code> と <code>（ト書き）</code> も解釈します。</p>
+            </div>
+        </details>
     </div>
 
     <div class="dads-field">
@@ -64,7 +70,7 @@
 
     <div>
         <button class="dads-button dads-button--lg dads-button--block" type="submit"
-                {% if not stt_filename %}disabled{% endif %}>マッチングを実行</button>
+                {% if not stt_filename %}disabled{% endif %}>{{ ic.icon('next') }}マッチングを実行</button>
         {% if not stt_filename %}
         <p class="dads-help">Step 1 が終わるまで実行できません。</p>
         {% endif %}

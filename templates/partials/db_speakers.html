@@ -1,3 +1,4 @@
+{% import 'partials/icons.html' as ic %}
 <div class="dads-card">
     <h2 class="dads-card__title">{{ db_name }}</h2>
     <p class="u-caption u-sub u-mb-3">{{ speakers|length }} 話者</p>
@@ -8,26 +9,28 @@
         <li class="dads-item">
             <div class="dads-item__main">
                 <p><strong>{{ s.speaker_name }}</strong></p>
-                <p class="u-caption u-sub">{{ s.filename }}　{{ (s.size_bytes / 1024)|round(1) }} KB</p>
                 <audio controls preload="none" class="u-mt-2" style="max-width: 100%">
                     <source src="/api/databases/{{ db_name }}/speakers/{{ s.filename }}/audio?v={{ s.mtime }}">
                 </audio>
             </div>
             <div class="u-row">
-                <button class="dads-button dads-button--outline dads-button--sm" type="button"
+                <button class="dads-button dads-button--outline dads-button--icon" type="button"
+                        title="名前を変える" aria-label="{{ s.speaker_name }} の名前を変える"
                         onclick="openDbRename('{{ db_name }}', '{{ s.filename }}', '{{ s.speaker_name }}')">
-                    名前を変える
+                    {{ ic.icon('edit', 20) }}
                 </button>
-                <button class="dads-button dads-button--outline dads-button--sm" type="button"
+                <button class="dads-button dads-button--outline dads-button--icon" type="button"
+                        title="範囲を切り出す" aria-label="{{ s.speaker_name }} の範囲を切り出す"
                         onclick="openDbTrim('{{ db_name }}', '{{ s.filename }}', '{{ s.speaker_name }}', {{ s.mtime }})">
-                    範囲を切り出す
+                    {{ ic.icon('cut', 20) }}
                 </button>
-                <button class="dads-button dads-button--outline dads-button--sm" type="button"
+                <button class="dads-button dads-button--outline dads-button--icon" type="button"
+                        title="削除" aria-label="{{ s.speaker_name }} を削除"
                         hx-delete="/api/databases/{{ db_name }}/speakers/{{ s.filename }}"
                         hx-target="#db-detail"
                         hx-swap="innerHTML"
-                        hx-confirm="「{{ s.speaker_name }}」を削除しますか？（voice_databases/.trash/ へ退避するので、あとから手で戻せます）">
-                    削除
+                        hx-confirm="「{{ s.speaker_name }}」を削除しますか？ゴミ箱へ退避します。">
+                    {{ ic.icon('delete', 20) }}
                 </button>
             </div>
         </li>
@@ -47,8 +50,8 @@
             <input class="dads-file" type="file" name="files" multiple required
                    aria-labelledby="add-speaker-heading"
                    accept=".wav,.mp3,.m4a,.flac,.mp4,.mov,.ogg,.opus,.aac,.wma">
-            <p class="dads-help">ファイル名（拡張子をのぞいた部分）が話者名になります。同じ名前は上書きします。</p>
-            <button class="dads-button" type="submit">アップロード</button>
+            <p class="dads-help">ファイル名が話者名になります。</p>
+            <button class="dads-button" type="submit">{{ ic.icon('upload', 20) }}アップロード</button>
         </form>
     </div>
 </div>

@@ -1,3 +1,4 @@
+{% import 'partials/icons.html' as ic %}
 {% if databases %}
 <ul class="dads-list">
     {% for db in databases %}
@@ -12,13 +13,15 @@
             </button>
             <span class="u-caption u-sub">{{ db.speaker_count }} 話者</span>
         </div>
-        <button class="dads-button dads-button--outline dads-button--sm"
+        <button class="dads-button dads-button--outline dads-button--icon"
                 type="button"
+                title="削除"
+                aria-label="{{ db.name }} を削除"
                 hx-delete="/api/databases/{{ db.name }}"
                 hx-target="#db-list"
                 hx-swap="innerHTML"
-                hx-confirm="データベース「{{ db.name }}」を削除しますか？中の話者（{{ db.speaker_count }}名）ごと voice_databases/.trash/ へ退避します（あとから手で戻せます）。">
-            削除
+                hx-confirm="データベース「{{ db.name }}」を削除しますか？中の話者（{{ db.speaker_count }}名）ごとゴミ箱へ退避します。">
+            {{ ic.icon('delete', 20) }}
         </button>
     </li>
     {% endfor %}

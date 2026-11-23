@@ -15,12 +15,13 @@
   グルーJS (window.toggleCropEditor / initCropEditor) は
   partials/crop_editor_script.html を各ページで一度 include して読み込む。
 #}
+{% import 'partials/icons.html' as ic %}
 {% macro crop_editor(ed_id, audio_url, start_field, end_field) %}
 <div class="u-mt-2">
     <button class="dads-button dads-button--text dads-button--sm"
             type="button"
             onclick="toggleCropEditor('{{ ed_id }}', '{{ audio_url }}')">
-        範囲を指定する（純粋な声だけ残す）
+        {{ ic.icon('cut', 20) }}範囲を指定する
     </button>
     <div id="crop-wrap-{{ ed_id }}" class="dads-crop u-hidden u-mt-2">
         <div id="crop-wave-{{ ed_id }}"></div>
@@ -33,7 +34,7 @@
                    name="{{ end_field }}" id="crop-end-{{ ed_id }}">
             <button class="dads-button dads-button--outline dads-button--sm" type="button"
                     onclick="cropEditors['{{ ed_id }}'] && cropEditors['{{ ed_id }}'].playSelection()">
-                選択範囲を試聴
+                {{ ic.icon('play', 20) }}試聴
             </button>
             <button class="dads-button dads-button--text dads-button--sm" type="button"
                     onclick="cropEditors['{{ ed_id }}'] && cropEditors['{{ ed_id }}'].reset()">

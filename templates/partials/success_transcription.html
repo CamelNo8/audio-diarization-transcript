@@ -1,3 +1,4 @@
+{% import 'partials/icons.html' as ic %}
 <div class="dads-banner dads-banner--success dads-fade-in" role="status">
     <svg class="dads-banner__icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
         <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1 14.4-4.2-4.2 1.4-1.4 2.8 2.8 5.6-5.6 1.4 1.4-7 7z"/>
@@ -8,16 +9,16 @@
 
         {% if unknown_count and unknown_count > 0 %}
         <p class="u-mt-2">
-            声紋データベースに無い話者が {{ unknown_count }} 人分あります。
+            音声特徴データベースに無い話者が {{ unknown_count }} 人分あります。
             先に名前を付けておくと、字幕の話者名がそろいます。
         </p>
         {% else %}
-        <p class="u-mt-2">声紋データベースに無い話者はありませんでした。</p>
+        <p class="u-mt-2">音声特徴データベースに無い話者はありませんでした。</p>
         {% endif %}
 
         <div class="dads-banner__actions">
-            <a class="dads-button" href="/matching?job_id={{ job_id | urlencode }}">Step 2 へ進む</a>
-            <a class="dads-button dads-button--outline" href="{{ download_url }}">SRTをダウンロード</a>
+            <a class="dads-button" href="/matching?job_id={{ job_id | urlencode }}">{{ ic.icon('next', 20) }}Step 2 へ進む</a>
+            <a class="dads-button dads-button--outline" href="{{ download_url }}">{{ ic.icon('download', 20) }}SRTをダウンロード</a>
             {% if unknown_count and unknown_count > 0 %}
             <a class="dads-button dads-button--text" href="/unknowns/{{ job_id | urlencode }}">
                 未登録の話者に名前を付ける
