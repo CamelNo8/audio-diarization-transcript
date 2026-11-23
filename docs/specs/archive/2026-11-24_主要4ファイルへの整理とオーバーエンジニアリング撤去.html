@@ -58,7 +58,7 @@
 <header class="page">
   <h1>主要4ファイルへの整理とオーバーエンジニアリング撤去</h1>
   <p class="meta">
-    作成日: 2026-11-24 ／ 状態: <span class="status done">実装ずみ</span>（コミットは未実施） ／
+    作成日: 2026-11-24 ／ 状態: <span class="status done">完了</span>（2026-11-24 実装・コミット <code>ce706f1</code>） ／
     対象: <code>src/</code> 全体（機能・性能は変えない）
   </p>
 </header>
@@ -380,7 +380,7 @@ main.py ─ src/cli/runner.py ─┬─ speaker_verification.load_verifier()
     <tr><td>7-1</td><td>README のプロジェクト構成・CLI コマンド例を実態に合わせる（<code>src/spark/</code> は「未使用のまま維持」と明記）</td><td><span class="status done">完了</span></td></tr>
     <tr><td>7-2</td><td><code>ruff check .</code> / <code>ruff format .</code></td><td><span class="status done">完了</span></td></tr>
     <tr><td>7-3</td><td>全テスト（500件）確認、出力の目視確認（SRT 1本・対応表1本）</td><td><span class="status done">完了</span></td></tr>
-    <tr><td>7-4</td><td>コミット分割（Phase ごと。機能追加は混ぜない）</td><td><span class="status todo">未着手</span>（クライアント確認待ち）</td></tr>
+    <tr><td>7-4</td><td>コミット（<code>ce706f1</code>。全フェーズを1コミットにまとめた。ファイルをまたいで絡み合っており、フェーズごとに割るとテストが通らない中間コミットができるため。機能追加は含まない）</td><td><span class="status done">完了</span></td></tr>
   </table>
 </div>
 
@@ -483,7 +483,7 @@ main.py ─ src/cli/runner.py ─┬─ speaker_verification.load_verifier()
 </ul>
 
 <footer class="page">
-  2026-11-24 作成・実装（Phase 1〜7-3 完了。コミットのみ未実施）。全ToDoが完了したら archive/ へ移す。
+  2026-11-24 作成・実装・コミット（<code>ce706f1</code>）。全ToDo完了のため archive/ へ移動した。
 </footer>
 
 </div>
